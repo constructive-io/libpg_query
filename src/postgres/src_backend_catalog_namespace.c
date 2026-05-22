@@ -952,14 +952,21 @@ LookupExplicitNamespace(const char *nspname, bool missing_ok)
 		 */
 	}
 
-	// CHANGED: Only support pg_catalog and public namespace
+	// CHANGED: Support pg_catalog, public, and treat unknown schemas as public
     if (strcmp(nspname, "pg_catalog") == 0)
         return PG_CATALOG_NAMESPACE;
 
     if (strcmp(nspname, "public") == 0)
         return PG_PUBLIC_NAMESPACE;
 
-    elog(ERROR, "Not implemented (LookupExplicitNamespace only supports pg_catalog and public)");
+    /*
+     * For any other schema, return PG_PUBLIC_NAMESPACE so that type
+     * lookups fall through to the RECORDOID path in GetSysCacheOid.
+     * This allows PL/pgSQL compilation to continue for variables
+     * declared with schema-qualified types (e.g. "my_schema".users).
+     * The schema name is preserved in the PLpgSQL_type.typname string.
+     */
+    return PG_PUBLIC_NAMESPACE;
 
 	/*namespaceId = get_namespace_oid(nspname, missing_ok);
 	if (missing_ok && !OidIsValid(namespaceId))

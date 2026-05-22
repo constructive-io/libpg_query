@@ -506,7 +506,7 @@ dump_return(StringInfo out, PLpgSQL_stmt_return *node)
 
 	WRITE_INT_FIELD(lineno, lineno, lineno);
 	WRITE_EXPR_FIELD(expr);
-	//WRITE_INT_FIELD(retvarno);
+	WRITE_INT_FIELD(retvarno, retvarno, retvarno);
 }
 
 static void
@@ -516,7 +516,7 @@ dump_return_next(StringInfo out, PLpgSQL_stmt_return_next *node)
 
 	WRITE_INT_FIELD(lineno, lineno, lineno);
 	WRITE_EXPR_FIELD(expr);
-	//WRITE_INT_FIELD(retvarno);
+	WRITE_INT_FIELD(retvarno, retvarno, retvarno);
 }
 
 static void
@@ -659,6 +659,9 @@ dump_function(StringInfo out, PLpgSQL_function *node)
 				break;
 			case PLPGSQL_DTYPE_RECFIELD:
 				dump_record_field(out, (PLpgSQL_recfield *) d);
+				break;
+			case PLPGSQL_DTYPE_PROMISE:
+				dump_var(out, (PLpgSQL_var *) d);
 				break;
 			default:
 				elog(WARNING, "could not dump unrecognized dtype: %d",
