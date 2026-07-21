@@ -610,3 +610,14 @@ BEGIN
     RETURN local_a < local_b;
 END;
 $$ LANGUAGE plpgsql;
+
+-- Regression: ALIAS FOR declarations must be emitted in the PLpgSQL_function
+-- JSON (name + target datum varno + source lineno). Aliases live only in the
+-- compiler namespace, so without explicit serialization the alias name is lost.
+CREATE FUNCTION alias_declaration(integer) RETURNS integer LANGUAGE plpgsql AS $$
+DECLARE
+    arg ALIAS FOR $1;
+BEGIN
+    RETURN arg + 1;
+END;
+$$;
