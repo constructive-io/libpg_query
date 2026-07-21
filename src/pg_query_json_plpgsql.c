@@ -650,7 +650,9 @@ dump_function(StringInfo out, PLpgSQL_function *node)
 		{
 			appendStringInfoString(out, "{\"PLpgSQL_alias\":{\"name\":");
 			_outToken(out, pg_query_plpgsql_alias_name(i));
-			appendStringInfo(out, ",\"varno\":%d}},", pg_query_plpgsql_alias_varno(i));
+			appendStringInfo(out, ",\"varno\":%d,\"lineno\":%d}},",
+							 pg_query_plpgsql_alias_varno(i),
+							 pg_query_plpgsql_alias_lineno(i));
 		}
 		removeTrailingDelimiter(out);
 		appendStringInfoString(out, "],");
@@ -792,6 +794,7 @@ typedef struct PgQueryPlpgsqlAlias
 {
 	int		varno;
 	char   *name;
+	int		lineno;
 } PgQueryPlpgsqlAlias;
 
 static PgQueryPlpgsqlAlias *plpgsql_aliases = NULL;
@@ -808,7 +811,7 @@ pg_query_plpgsql_reset_aliases(void)
 }
 
 void
-pg_query_plpgsql_record_alias(int itemno, const char *name)
+pg_query_plpgsql_record_alias(int itemno, const char *name, int lineno)
 {
 	if (name == NULL)
 		return;
@@ -819,6 +822,7 @@ pg_query_plpgsql_record_alias(int itemno, const char *name)
 	}
 	plpgsql_aliases[plpgsql_naliases].varno = itemno;
 	plpgsql_aliases[plpgsql_naliases].name = strdup(name);
+	plpgsql_aliases[plpgsql_naliases].lineno = lineno;
 	plpgsql_naliases++;
 }
 
@@ -838,6 +842,12 @@ int
 pg_query_plpgsql_alias_varno(int i)
 {
 	return plpgsql_aliases[i].varno;
+}
+
+int
+pg_query_plpgsql_alias_lineno(int i)
+{
+	return plpgsql_aliases[i].lineno;
 }
 
 char *
