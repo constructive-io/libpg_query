@@ -488,6 +488,9 @@ PgQueryInternalPlpgsqlFuncAndError pg_query_raw_parse_plpgsql(Node* stmt)
 	close(stderr_pipe[1]);
 #endif
 
+	/* Clear aliases recorded from any previous function compile */
+	pg_query_plpgsql_reset_aliases();
+
 	PG_TRY();
 	{
 		if (IsA(stmt, CreateFunctionStmt)) {
