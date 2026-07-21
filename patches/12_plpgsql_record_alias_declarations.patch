@@ -20,8 +20,8 @@ diff --git a/src/pl/plpgsql/src/pl_gram.y b/src/pl/plpgsql/src/pl_gram.y
  										   $4->itemno, $1.name);
 +						{
 +							/* pg_query: record ALIAS declarations for JSON output */
-+							extern void pg_query_plpgsql_record_alias(int itemno, const char *name);
-+							pg_query_plpgsql_record_alias($4->itemno, $1.name);
++							extern void pg_query_plpgsql_record_alias(int itemno, const char *name, int lineno);
++							pg_query_plpgsql_record_alias($4->itemno, $1.name, $1.lineno);
 +						}
  					}
  				| decl_varname opt_scrollable K_CURSOR
