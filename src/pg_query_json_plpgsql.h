@@ -12,9 +12,10 @@ char* plpgsqlToJSON(PLpgSQL_function* func);
  * The grammar records them here during compile so plpgsqlToJSON can emit them.
  */
 void pg_query_plpgsql_reset_aliases(void);
-void pg_query_plpgsql_record_alias(int itemno, const char *name);
+void pg_query_plpgsql_record_alias(int itemno, const char *name, int lineno);
 int pg_query_plpgsql_alias_count(void);
 const char* pg_query_plpgsql_alias_name(int i);
 int pg_query_plpgsql_alias_varno(int i);
+int pg_query_plpgsql_alias_lineno(int i);
 
 #endif
