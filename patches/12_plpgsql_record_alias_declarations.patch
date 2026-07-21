@@ -1,0 +1,28 @@
+commit 0000000000000000000000000000000000000000
+Author: Constructive <dev@constructive.io>
+Date:   Tue Jul 21 2026 00:00:00 -0700
+
+    PL/pgSQL: Record ALIAS declarations for pg_query JSON output
+
+    ALIAS FOR declarations only create a namespace entry pointing at an
+    existing datum; the namespace is popped before the function struct is
+    dumped, so the alias name is otherwise lost from the parse output.
+    Record aliases via pg_query's recorder (pg_query_json_plpgsql.c) so
+    plpgsqlToJSON can emit them as an "aliases" array on PLpgSQL_function.
+
+diff --git a/src/pl/plpgsql/src/pl_gram.y b/src/pl/plpgsql/src/pl_gram.y
+--- a/src/pl/plpgsql/src/pl_gram.y
++++ b/src/pl/plpgsql/src/pl_gram.y
+@@ -528,6 +528,12 @@
+ 				| decl_varname K_ALIAS K_FOR decl_aliasitem ';'
+ 					{
+ 						plpgsql_ns_additem($4->itemtype,
+ 										   $4->itemno, $1.name);
++						{
++							/* pg_query: record ALIAS declarations for JSON output */
++							extern void pg_query_plpgsql_record_alias(int itemno, const char *name);
++							pg_query_plpgsql_record_alias($4->itemno, $1.name);
++						}
+ 					}
+ 				| decl_varname opt_scrollable K_CURSOR
+ 					{ plpgsql_ns_push($1.name, PLPGSQL_LABEL_OTHER); }

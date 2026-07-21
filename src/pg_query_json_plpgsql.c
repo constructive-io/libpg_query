@@ -639,6 +639,19 @@ dump_function(StringInfo out, PLpgSQL_function *node)
 	WRITE_INT_FIELD(new_varno, new_varno, new_varno);
 	WRITE_INT_FIELD(old_varno, old_varno, old_varno);
 
+	if (pg_query_plpgsql_alias_count() > 0)
+	{
+		appendStringInfoString(out, "\"aliases\":[");
+		for (i = 0; i < pg_query_plpgsql_alias_count(); i++)
+		{
+			appendStringInfoString(out, "{\"PLpgSQL_alias\":{\"name\":");
+			_outToken(out, pg_query_plpgsql_alias_name(i));
+			appendStringInfo(out, ",\"varno\":%d}},", pg_query_plpgsql_alias_varno(i));
+		}
+		removeTrailingDelimiter(out);
+		appendStringInfoString(out, "],");
+	}
+
 	appendStringInfoString(out, "\"datums\":");
 	appendStringInfoChar(out, '[');
 	for (i = 0; i < node->ndatums; i++)
@@ -762,6 +775,64 @@ dump_record_field(StringInfo out, PLpgSQL_recfield *node) {
 
 	WRITE_STRING_FIELD(fieldname, fieldname, fieldname);
 	WRITE_INT_FIELD(recparentno, recparentno, recparentno);
+}
+
+/*
+ * Alias declarations recorded by the grammar during the most recent
+ * function compile (see pg_query_plpgsql_record_alias). ALIAS FOR entries
+ * live only in the compiler's namespace, which is popped before the
+ * function struct is available for dumping, so they are captured here.
+ */
+typedef struct PgQueryPlpgsqlAlias
+{
+	int		varno;
+	char   *name;
+} PgQueryPlpgsqlAlias;
+
+static PgQueryPlpgsqlAlias *plpgsql_aliases = NULL;
+static int plpgsql_naliases = 0;
+static int plpgsql_aliases_size = 0;
+
+void
+pg_query_plpgsql_reset_aliases(void)
+{
+	int i;
+	for (i = 0; i < plpgsql_naliases; i++)
+		free(plpgsql_aliases[i].name);
+	plpgsql_naliases = 0;
+}
+
+void
+pg_query_plpgsql_record_alias(int itemno, const char *name)
+{
+	if (name == NULL)
+		return;
+	if (plpgsql_naliases >= plpgsql_aliases_size)
+	{
+		plpgsql_aliases_size = plpgsql_aliases_size == 0 ? 8 : plpgsql_aliases_size * 2;
+		plpgsql_aliases = realloc(plpgsql_aliases, plpgsql_aliases_size * sizeof(PgQueryPlpgsqlAlias));
+	}
+	plpgsql_aliases[plpgsql_naliases].varno = itemno;
+	plpgsql_aliases[plpgsql_naliases].name = strdup(name);
+	plpgsql_naliases++;
+}
+
+int
+pg_query_plpgsql_alias_count(void)
+{
+	return plpgsql_naliases;
+}
+
+const char *
+pg_query_plpgsql_alias_name(int i)
+{
+	return plpgsql_aliases[i].name;
+}
+
+int
+pg_query_plpgsql_alias_varno(int i)
+{
+	return plpgsql_aliases[i].varno;
 }
 
 char *
