@@ -2636,6 +2636,12 @@ yyreduce:
     {
 						plpgsql_ns_additem((yyvsp[(4) - (5)].nsitem)->itemtype,
 										   (yyvsp[(4) - (5)].nsitem)->itemno, (yyvsp[(1) - (5)].varname).name);
+						{
+							/* pg_query: record ALIAS declarations for JSON output */
+							extern void pg_query_plpgsql_record_alias(int itemno, const char *name);
+							pg_query_plpgsql_record_alias((yyvsp[(4) - (5)].nsitem)->itemno,
+														  (yyvsp[(1) - (5)].varname).name);
+						}
 					;}
     break;
 
