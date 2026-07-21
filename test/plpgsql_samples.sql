@@ -641,3 +641,45 @@ BEGIN
     RETURN v;
 END;
 $$;
+
+-- Regression: custom-type arrays in DECLARE must parse (previously failed
+-- with 'variable "v" has pseudo-type _record').
+CREATE FUNCTION custom_type_arrays() RETURNS void LANGUAGE plpgsql AS $$
+DECLARE
+    v mytype[];
+    w myschema.mytype[];
+    x "myType"[];
+    ok1 int[];
+    ok2 text[];
+    ok3 mytype;
+BEGIN
+    NULL;
+END;
+$$;
+
+-- Regression: bare RETURN must be accepted in functions with a scalar or
+-- trigger return type (previously failed with 'missing expression').
+CREATE FUNCTION bare_return_scalar() RETURNS int LANGUAGE plpgsql AS $$
+BEGIN
+    RETURN;
+END;
+$$;
+
+CREATE FUNCTION bare_return_trigger() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    RETURN;
+END;
+$$;
+
+-- Regression: non-void functions must get the implicit trailing RETURN, and
+-- declared type names must keep their SQL spelling and typmods
+-- (integer, not int4; varchar(10), not varchar).
+CREATE FUNCTION implicit_return_and_typenames() RETURNS int LANGUAGE plpgsql AS $$
+DECLARE
+    v_id integer;
+    v_name varchar(10);
+    v_num numeric(10,2);
+BEGIN
+    NULL;
+END;
+$$;
