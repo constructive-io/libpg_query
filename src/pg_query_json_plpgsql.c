@@ -774,6 +774,7 @@ dump_record(StringInfo out, PLpgSQL_rec *node) {
 	WRITE_STRING_FIELD(refname, refname, refname);
 	WRITE_INT_FIELD(dno, dno, dno);
 	WRITE_INT_FIELD(lineno, lineno, lineno);
+	WRITE_OBJ_FIELD(datatype, dump_type);
 }
 
 static void
