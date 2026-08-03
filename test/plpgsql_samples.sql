@@ -700,3 +700,15 @@ BEGIN
     RETURN to_jsonb(nodes);
 END;
 $$;
+
+-- Regression: a schema-qualified function installs its (unqualified) name as
+-- the top-level PL/pgSQL block label, so a label-qualified reference such as
+-- SELECT ... INTO <funcname>.<param> must resolve to the parameter. The
+-- standalone parser previously took the FIRST component of the qualified name
+-- (the schema) as the function name via linitial(), so the block label was the
+-- schema and "check_password.password" failed with "not a known variable".
+CREATE FUNCTION auth.check_password(IN password text) RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+    SELECT trim(check_password.password) INTO check_password.password;
+END;
+$$;

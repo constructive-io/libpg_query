@@ -293,7 +293,17 @@ pg_query_create_function(CreateFunctionStmt *stmt,
 	Oid			variadicArgType;
 	Oid			requiredResultType;
 
-	funcname = strVal(linitial(stmt->funcname));
+	/*
+	 * The function name is the last component of the (possibly schema- or
+	 * catalog-qualified) name list; leading components are the namespace.
+	 * Upstream CreateFunction derives it the same way via
+	 * QualifiedNameGetCreationNamespace(). Taking linitial() here would use
+	 * the schema as the function name, which plpgsql_compile then installs as
+	 * the top-level block label — breaking label-qualified variable references
+	 * such as SELECT ... INTO <funcname>.<param> in a schema-qualified
+	 * function.
+	 */
+	funcname = strVal(llast(stmt->funcname));
 
 	*is_dml_trigger = false;
 	*is_event_trigger = false;
