@@ -683,3 +683,20 @@ BEGIN
     NULL;
 END;
 $$;
+
+-- Regression: VARIADIC array parameters must parse. Compiling a VARIADIC
+-- parameter runs get_element_type() on the array type; the standalone
+-- SearchSysCache1 mock previously left typelem/typsubscript unset, so every
+-- array read as a non-array and interpret_function_parameter_list() rejected
+-- the parameter with "VARIADIC parameter must be an array".
+CREATE FUNCTION variadic_text(VARIADIC strs text[]) RETURNS jsonb LANGUAGE plpgsql IMMUTABLE AS $$
+BEGIN
+    RETURN to_jsonb(strs);
+END;
+$$;
+
+CREATE FUNCTION variadic_jsonb(VARIADIC nodes jsonb[]) RETURNS jsonb LANGUAGE plpgsql IMMUTABLE AS $$
+BEGIN
+    RETURN to_jsonb(nodes);
+END;
+$$;

@@ -250,6 +250,26 @@ def generate_helper_c(types, oid_macros, collation_macros)
     \treturn InvalidOid;
     }
 
+    /*
+     * Given an array type OID, return its element type OID (InvalidOid if the OID
+     * is not a "true" array type). The builtin table carries typarray (base ->
+     * array); this walks that relation in reverse (array -> base = typelem), which
+     * lets the SearchSysCache1 mock populate typelem/typsubscript so that
+     * get_element_type()/IsTrueArrayType() recognize array types outside a backend.
+     */
+    static Oid
+    pg_query_builtin_type_elem_by_oid(Oid arrayOid)
+    {
+    \tif (!OidIsValid(arrayOid))
+    \t\treturn InvalidOid;
+    \tfor (size_t i = 0; i < lengthof(pg_query_builtin_types); i++)
+    \t{
+    \t\tif (pg_query_builtin_types[i].typarray == arrayOid)
+    \t\t\treturn pg_query_builtin_types[i].oid;
+    \t}
+    \treturn InvalidOid;
+    }
+
     #endif /* PG_QUERY_PG_TYPE_C */
   EOC
 end
