@@ -1,5 +1,6 @@
 #include <catalog/pg_type.h>
 #include <catalog/pg_collation_d.h>
+#include <utils/fmgroids.h>
 #include "pg_query_pg_type.c"
 
 HeapTuple
@@ -38,6 +39,22 @@ SearchSysCache1(int cacheId,
 
     t->oid = DatumGetObjectId(key1);
     t->typisdefined = true;
+
+    /*
+     * The builtin table doesn't carry typelem/typsubscript, so derive them for
+     * array types (base->typarray walked in reverse). Without this,
+     * get_element_type()/IsTrueArrayType() treat every type as a non-array,
+     * which makes interpret_function_parameter_list() reject any VARIADIC
+     * parameter with "VARIADIC parameter must be an array".
+     */
+    {
+        Oid elem = pg_query_builtin_type_elem_by_oid(t->oid);
+        if (OidIsValid(elem))
+        {
+            t->typelem = elem;
+            t->typsubscript = F_ARRAY_SUBSCRIPT_HANDLER;
+        }
+    }
 
 	// The following logic is copied from heap_form_tuple, but pretends there are no nulls, and copies t_data directly
 
