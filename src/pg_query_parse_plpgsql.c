@@ -657,6 +657,7 @@ PgQueryPlpgsqlParseResult pg_query_parse_plpgsql(const char* input)
 		result.error = func_and_error.error;
 
 		if (result.error != NULL) {
+			pg_query_plpgsql_reset_aliases();
 			free(parse_result.stderr_buffer);
 			pg_query_exit_memory_context(ctx);
 			return result;
@@ -668,6 +669,7 @@ PgQueryPlpgsqlParseResult pg_query_parse_plpgsql(const char* input)
 			size_t new_out_len;
 
 			func_json = plpgsqlToJSON(func_and_error.func);
+			pg_query_plpgsql_reset_aliases();
 			plpgsql_free_function_memory(func_and_error.func);
 
 			new_out_len = strlen(result.plpgsql_funcs) + strlen(func_json) + 3;

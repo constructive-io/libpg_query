@@ -830,7 +830,10 @@ pg_query_plpgsql_reset_aliases(void)
 	int i;
 	for (i = 0; i < plpgsql_naliases; i++)
 		free(plpgsql_aliases[i].name);
+	free(plpgsql_aliases);
+	plpgsql_aliases = NULL;
 	plpgsql_naliases = 0;
+	plpgsql_aliases_size = 0;
 }
 
 void
