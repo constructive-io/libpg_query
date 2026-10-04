@@ -712,3 +712,158 @@ BEGIN
     SELECT trim(check_password.password) INTO check_password.password;
 END;
 $$;
+
+-- Regression: RETURN of the FIRST parameter. Parameters are datums 0..n-1, so
+-- retvarno is 0 here; it must still be emitted (plain WRITE_INT_FIELD drops
+-- zero values, which makes "RETURN x" indistinguishable from a bare RETURN).
+CREATE FUNCTION return_first_param(x int, y int) RETURNS int LANGUAGE plpgsql AS $$
+BEGIN
+    RETURN x;
+END;
+$$;
+
+-- Regression: a single OUT parameter is datum 0, so out_param_varno is 0 and
+-- the implicit trailing RETURN carries retvarno 0; both must be emitted.
+CREATE FUNCTION out_first_param(OUT total int) LANGUAGE plpgsql AS $$
+BEGIN
+    total := 1;
+END;
+$$;
+
+-- Regression: multiple OUT params use an unnamed row datum as out_param_varno.
+CREATE FUNCTION out_two_params(IN a int, OUT b int, OUT c text) LANGUAGE plpgsql AS $$
+BEGIN
+    b := a * 2;
+    c := a::text;
+    RETURN;
+END;
+$$;
+
+-- Regression: RETURN NEXT <variable> and RETURN NEXT <first parameter>.
+CREATE FUNCTION return_next_var(seed int) RETURNS SETOF int LANGUAGE plpgsql AS $$
+DECLARE
+    v int := seed + 1;
+BEGIN
+    RETURN NEXT seed;
+    RETURN NEXT v;
+    RETURN NEXT v * 2;
+    RETURN;
+END;
+$$;
+
+-- Regression: RETURNS TABLE with RETURN QUERY / RETURN QUERY EXECUTE.
+CREATE FUNCTION returns_table(p_limit int) RETURNS TABLE(id int, name text) LANGUAGE plpgsql AS $$
+BEGIN
+    RETURN QUERY SELECT t.id, t.name FROM things t LIMIT p_limit;
+    RETURN QUERY EXECUTE 'SELECT 1, $1' USING 'x';
+END;
+$$;
+
+-- Regression: ALIAS FOR positional ($1) and named parameters in a plain
+-- function; aliases are only recorded in the compiler namespace and must be
+-- surfaced via the fork's "aliases" list (name, varno, lineno).
+CREATE FUNCTION alias_params(int, text, flag boolean) RETURNS text LANGUAGE plpgsql AS $$
+DECLARE
+    a ALIAS FOR $1;
+    b ALIAS FOR $2;
+    f ALIAS FOR flag;
+BEGIN
+    IF f THEN
+        RETURN b || a::text;
+    END IF;
+    RETURN b;
+END;
+$$;
+
+-- Regression: record variables declared with a user-defined type keep their
+-- datatype (deparsed as "r myschema.mytype"), and RETURN <record> keeps
+-- retvarno pointing at the record datum.
+CREATE FUNCTION return_record(id int) RETURNS myschema.mytype LANGUAGE plpgsql AS $$
+DECLARE
+    r myschema.mytype;
+    rows myschema.mytype[];
+BEGIN
+    SELECT * INTO r FROM myschema.things t WHERE t.id = return_record.id;
+    RETURN r;
+END;
+$$;
+
+-- Regression: %ROWTYPE / %TYPE spellings are preserved as written and the
+-- unqualified function name is the block label even when schema-qualified.
+CREATE FUNCTION app.rowtype_return(IN id int) RETURNS app.things LANGUAGE plpgsql AS $$
+DECLARE
+    r app.things%ROWTYPE;
+    n app.things.name%TYPE;
+BEGIN
+    SELECT * INTO r FROM app.things WHERE app.things.id = rowtype_return.id;
+    n := r.name;
+    RETURN r;
+END;
+$$;
+
+-- Regression: trigger function using TG_* promise datums, RETURN OLD / RETURN
+-- NULL, and a RETURN of NEW inside a CASE on TG_OP.
+CREATE FUNCTION trigger_tg_op() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        RETURN OLD;
+    ELSIF TG_OP = 'UPDATE' AND NEW.id <> OLD.id THEN
+        RAISE EXCEPTION 'id is immutable on %', TG_TABLE_NAME;
+    ELSIF TG_WHEN = 'AFTER' THEN
+        RETURN NULL;
+    END IF;
+    NEW.updated_at := now();
+    RETURN NEW;
+END;
+$$;
+
+-- Regression: event trigger functions have their own promise datums
+-- (tg_event, tg_tag) and must produce valid JSON.
+CREATE FUNCTION event_trigger_fn() RETURNS event_trigger LANGUAGE plpgsql AS $$
+BEGIN
+    RAISE NOTICE 'event=% tag=%', TG_EVENT, TG_TAG;
+END;
+$$;
+
+-- Regression: schema-qualified function with DEFAULT, OUT, and VARIADIC
+-- parameters together, plus EXCEPTION handling and a labeled nested block.
+CREATE FUNCTION app.mixed_params(IN a int DEFAULT 1, OUT total int, VARIADIC rest int[] DEFAULT '{}') LANGUAGE plpgsql AS $$
+<<outer>>
+DECLARE
+    i int;
+BEGIN
+    total := a;
+    FOREACH i IN ARRAY rest LOOP
+        <<inner>>
+        BEGIN
+            total := total + i;
+        EXCEPTION
+            WHEN numeric_value_out_of_range THEN
+                EXIT outer;
+        END;
+    END LOOP;
+    RETURN;
+END;
+$$;
+
+-- Regression: deeply nested blocks and control structures must dump without
+-- recursion problems (the JSON writer recurses per statement).
+CREATE FUNCTION nested_blocks() RETURNS int LANGUAGE plpgsql AS $$
+DECLARE n int := 0;
+BEGIN
+  BEGIN BEGIN BEGIN BEGIN BEGIN BEGIN BEGIN BEGIN
+    IF n = 0 THEN
+      LOOP
+        WHILE n < 10 LOOP
+          FOR i IN 1..3 LOOP
+            CASE n WHEN 1 THEN n := n + 1; ELSE n := n + 2; END CASE;
+          END LOOP;
+          n := n + 1;
+        END LOOP;
+        EXIT WHEN n >= 10;
+      END LOOP;
+    END IF;
+  END; END; END; END; END; END; END; END;
+  RETURN n;
+END;
+$$;
