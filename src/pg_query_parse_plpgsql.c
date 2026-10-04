@@ -140,7 +140,10 @@ static PLpgSQL_function *compile_do_stmt(DoStmt* stmt)
 		}
 	}
 
-	assert(proc_source != NULL);
+	if (proc_source == NULL)
+		ereport(ERROR,
+				(errcode(ERRCODE_SYNTAX_ERROR),
+				 errmsg("no inline code specified")));
 
 	if(strcmp(language, "plpgsql") != 0) {
 		return (PLpgSQL_function *) palloc0(sizeof(PLpgSQL_function));
@@ -431,10 +434,24 @@ compile_create_function_stmt_via_callback(CreateFunctionStmt *stmt)
 		}
 	}
 
-	assert(proc_source != NULL);
-
 	if (strcmp(language, "plpgsql") != 0)
 		return (PLpgSQL_function *) palloc0(sizeof(PLpgSQL_function));
+
+	/* Mirrors the checks in upstream interpret_AS_clause */
+	if (stmt->sql_body == NULL && proc_source == NULL)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
+				 errmsg("no function body specified")));
+
+	if (stmt->sql_body != NULL && proc_source != NULL)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
+				 errmsg("duplicate function body specified")));
+
+	if (stmt->sql_body != NULL)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
+				 errmsg("inline SQL function body only valid for language SQL")));
 
 	wrapper = pg_query_create_function(stmt, language, proc_source,
 									   &is_dml_trigger, &is_event_trigger);
@@ -624,6 +641,7 @@ PgQueryPlpgsqlParseResult pg_query_parse_plpgsql(const char* input)
 
 	if (statements.stmts_count == 0) {
 		result.plpgsql_funcs = strdup("[]");
+		free(parse_result.stderr_buffer);
 		pg_query_exit_memory_context(ctx);
 		return result;
 	}
@@ -639,6 +657,8 @@ PgQueryPlpgsqlParseResult pg_query_parse_plpgsql(const char* input)
 		result.error = func_and_error.error;
 
 		if (result.error != NULL) {
+			pg_query_plpgsql_reset_aliases();
+			free(parse_result.stderr_buffer);
 			pg_query_exit_memory_context(ctx);
 			return result;
 		}
@@ -649,6 +669,7 @@ PgQueryPlpgsqlParseResult pg_query_parse_plpgsql(const char* input)
 			size_t new_out_len;
 
 			func_json = plpgsqlToJSON(func_and_error.func);
+			pg_query_plpgsql_reset_aliases();
 			plpgsql_free_function_memory(func_and_error.func);
 
 			new_out_len = strlen(result.plpgsql_funcs) + strlen(func_json) + 3;
