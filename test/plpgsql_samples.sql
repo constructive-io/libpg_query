@@ -618,3 +618,21 @@ DECLARE
 BEGIN
 END;
 $$ LANGUAGE plpgsql;
+
+-- Schema-qualified variable types outside pg_catalog/public, see
+-- https://github.com/pganalyze/libpg_query/issues/337
+CREATE FUNCTION test_qualified_type() RETURNS void LANGUAGE plpgsql AS $$
+DECLARE
+    v_user "my_schema".users;
+BEGIN
+    RETURN;
+END;
+$$;
+
+-- RETURN <variable> keeps the return target (retvarno)
+CREATE FUNCTION return_variable() RETURNS int LANGUAGE plpgsql AS $$
+DECLARE v int := 1;
+BEGIN
+    RETURN v;
+END;
+$$;
