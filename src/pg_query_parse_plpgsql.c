@@ -296,7 +296,12 @@ pg_query_create_function(CreateFunctionStmt *stmt,
 	Oid			variadicArgType;
 	Oid			requiredResultType;
 
-	funcname = strVal(linitial(stmt->funcname));
+	/*
+	 * The function name is the last element of the (possibly schema-qualified)
+	 * name list. plpgsql_compile uses it as the top-level block label, so
+	 * label-qualified references like <funcname>.<param> need it unqualified.
+	 */
+	funcname = strVal(llast(stmt->funcname));
 
 	*is_dml_trigger = false;
 	*is_event_trigger = false;

@@ -625,3 +625,11 @@ BEGIN
     RETURN to_jsonb(strs);
 END;
 $$ LANGUAGE plpgsql;
+
+-- Schema-qualified function name, referenced as the block label
+CREATE FUNCTION myschema.label_qualified(p int) RETURNS int AS $$
+BEGIN
+    label_qualified.p := label_qualified.p + 1;
+    RETURN p;
+END;
+$$ LANGUAGE plpgsql;
