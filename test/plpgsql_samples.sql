@@ -618,3 +618,18 @@ DECLARE
 BEGIN
 END;
 $$ LANGUAGE plpgsql;
+
+-- Declared type names keep their source spelling and typmods
+CREATE FUNCTION declared_type_names() RETURNS void AS $$
+DECLARE
+    v varchar(10);
+    n numeric(10,2);
+    c char(3);
+    t timestamp(3) with time zone;
+    i int;
+    b boolean;
+    x int[];
+BEGIN
+    NULL;
+END;
+$$ LANGUAGE plpgsql;

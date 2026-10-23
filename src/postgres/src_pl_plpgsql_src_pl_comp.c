@@ -1586,7 +1586,9 @@ build_datatype(HeapTuple typeTup, int32 typmod,
 
 	typ = (PLpgSQL_type *) palloc(sizeof(PLpgSQL_type));
 
-	typ->typname = pstrdup(NameStr(typeStruct->typname));
+	/* Use the SQL spelling of the type, including any typmod */
+	typ->typname = format_type_extended(typeStruct->oid, typmod,
+										FORMAT_TYPE_TYPEMOD_GIVEN);
 	typ->typoid = typeStruct->oid;
 	switch (typeStruct->typtype)
 	{

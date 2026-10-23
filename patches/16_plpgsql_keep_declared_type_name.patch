@@ -1,0 +1,48 @@
+Subject: [PATCH] PL/pgSQL: Keep declared type names as written in the source
+
+parse_datatype() returns the PLpgSQL_type built by plpgsql_build_datatype(),
+whose typname is the catalog name of the resolved type (e.g. "varchar" for
+"varchar(10)"). This drops the typmod and the original spelling, which
+pg_query needs to represent the declaration, so keep the source text
+instead (minus trailing whitespace).
+---
+ src/pl/plpgsql/src/pl_gram.y | 19 ++++++++++++++++---
+ 1 file changed, 16 insertions(+), 3 deletions(-)
+
+diff --git a/src/pl/plpgsql/src/pl_gram.y b/src/pl/plpgsql/src/pl_gram.y
+index f682311..a75f4bf 100644
+--- a/src/pl/plpgsql/src/pl_gram.y
++++ b/src/pl/plpgsql/src/pl_gram.y
+@@ -3847,6 +3847,8 @@ parse_datatype(const char *string, int location, yyscan_t yyscanner)
+ 	TypeName   *typeName;
+ 	Oid			type_id;
+ 	int32		typmod;
++	PLpgSQL_type *typ;
++	int			len;
+ 	sql_error_callback_arg cbarg;
+ 	ErrorContextCallback syntax_errcontext;
+ 
+@@ -3866,9 +3868,20 @@ parse_datatype(const char *string, int location, yyscan_t yyscanner)
+ 	error_context_stack = syntax_errcontext.previous;
+ 
+ 	/* Okay, build a PLpgSQL_type data structure for it */
+-	return plpgsql_build_datatype(type_id, typmod,
+-								  plpgsql_curr_compile->fn_input_collation,
+-								  typeName);
++	typ = plpgsql_build_datatype(type_id, typmod,
++								 plpgsql_curr_compile->fn_input_collation,
++								 typeName);
++
++	/*
++	 * Keep the type name as written in the source (e.g. "varchar(10)"), minus
++	 * trailing whitespace, so the original declaration is not lost.
++	 */
++	typ->typname = pstrdup(string);
++	len = strlen(typ->typname);
++	while (len > 0 && scanner_isspace(typ->typname[len - 1]))
++		typ->typname[--len] = '\0';
++
++	return typ;
+ }
+ 
+ /*
