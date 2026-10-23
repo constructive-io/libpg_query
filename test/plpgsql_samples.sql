@@ -633,3 +633,12 @@ BEGIN
     RETURN p;
 END;
 $$ LANGUAGE plpgsql;
+
+-- Array of a custom type
+CREATE FUNCTION custom_type_array() RETURNS void AS $$
+DECLARE
+    v mytype[];
+BEGIN
+    NULL;
+END;
+$$ LANGUAGE plpgsql;
