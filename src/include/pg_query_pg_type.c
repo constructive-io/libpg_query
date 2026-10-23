@@ -239,4 +239,24 @@ pg_query_builtin_type_oid_by_name(const char *typname)
 	return InvalidOid;
 }
 
+/*
+ * Given an array type OID, return its element type OID (InvalidOid if the OID
+ * is not a "true" array type). The builtin table carries typarray (base ->
+ * array); this walks that relation in reverse (array -> base = typelem), which
+ * lets the SearchSysCache1 mock populate typelem/typsubscript so that
+ * get_element_type()/IsTrueArrayType() recognize array types outside a backend.
+ */
+static Oid
+pg_query_builtin_type_elem_by_oid(Oid arrayOid)
+{
+	if (!OidIsValid(arrayOid))
+		return InvalidOid;
+	for (size_t i = 0; i < lengthof(pg_query_builtin_types); i++)
+	{
+		if (pg_query_builtin_types[i].typarray == arrayOid)
+			return pg_query_builtin_types[i].oid;
+	}
+	return InvalidOid;
+}
+
 #endif /* PG_QUERY_PG_TYPE_C */

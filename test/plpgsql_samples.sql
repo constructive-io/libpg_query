@@ -618,3 +618,10 @@ DECLARE
 BEGIN
 END;
 $$ LANGUAGE plpgsql;
+
+-- VARIADIC array parameter
+CREATE FUNCTION variadic_text(VARIADIC strs text[]) RETURNS jsonb AS $$
+BEGIN
+    RETURN to_jsonb(strs);
+END;
+$$ LANGUAGE plpgsql;
