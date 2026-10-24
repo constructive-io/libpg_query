@@ -512,6 +512,8 @@ PgQueryPlpgsqlParseResult pg_query_parse_plpgsql(const char* input)
 	result.plpgsql_funcs[strlen(result.plpgsql_funcs) - 1] = ']';
 
 	free(parse_result.stderr_buffer);
+	/* Drop the aliases recorded during this compile so nothing outlives the call */
+	pg_query_plpgsql_reset_aliases();
 	pg_query_exit_memory_context(ctx);
 
 	return result;
