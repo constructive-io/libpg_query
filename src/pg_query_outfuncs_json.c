@@ -1,6 +1,7 @@
 #include "pg_query_outfuncs.h"
 
 #include "postgres.h"
+#include "miscadmin.h"
 
 #include <ctype.h>
 
@@ -282,6 +283,7 @@ _outAConst(StringInfo out, const A_Const *node)
 static void
 _outNode(StringInfo out, const void *obj)
 {
+	check_stack_depth();
 	if (obj == NULL)
 	{
 		appendStringInfoString(out, "null");

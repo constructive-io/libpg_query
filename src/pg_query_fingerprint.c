@@ -5,6 +5,7 @@
 #include "pg_query_fingerprint.h"
 
 #include "postgres.h"
+#include "miscadmin.h"
 #include "xxhash/xxhash.h"
 #include "lib/ilist.h"
 
@@ -263,6 +264,7 @@ _fingerprintFreeContext(FingerprintContext *ctx) {
 void
 _fingerprintNode(FingerprintContext *ctx, const void *obj, const void *parent, char *field_name, unsigned int depth)
 {
+	check_stack_depth();
 	// Some queries are overly complex in their parsetree - lets consistently cut them off at 100 nodes deep
 	if (depth >= 100) {
 		return;

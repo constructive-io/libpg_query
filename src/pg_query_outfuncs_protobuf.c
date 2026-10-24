@@ -1,6 +1,7 @@
 #include "pg_query_outfuncs.h"
 
 #include "postgres.h"
+#include "miscadmin.h"
 #include <ctype.h>
 #include "access/relation.h"
 #include "nodes/parsenodes.h"
@@ -246,6 +247,7 @@ _outAConst(PgQuery__AConst* out, const A_Const *node)
 static void
 _outNode(PgQuery__Node* out, const void *obj)
 {
+	check_stack_depth();
 	if (obj == NULL)
 		return; // Keep out as NULL
 
