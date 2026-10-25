@@ -9,6 +9,58 @@
 
 #include "protobuf/pg_query.pb-c.h"
 
+#if defined(__linux__) && !defined(USE_VALGRIND)
+#include <sys/resource.h>
+#include <unistd.h>
+
+/* Scanning under a tight address-space limit must report "out of memory"
+ * instead of writing tokens through a NULL pointer. */
+static bool test_scan_out_of_memory(void)
+{
+  const char *stmt = "SELECT 1;\n";
+  const size_t repeat = 2000000;
+  size_t len = strlen(stmt);
+  char *input = malloc(len * repeat + 1);
+  long pages = 0;
+  FILE *statm;
+  struct rlimit old_limit;
+  struct rlimit limit;
+  PgQueryScanResult result;
+  bool ok;
+  size_t i;
+
+  for (i = 0; i < repeat; i++)
+    memcpy(input + i * len, stmt, len);
+  input[len * repeat] = '\0';
+
+  statm = fopen("/proc/self/statm", "r");
+  if (statm == NULL || fscanf(statm, "%ld", &pages) != 1) {
+    printf("INVALID result for out of memory scan: cannot read /proc/self/statm\n");
+    free(input);
+    return false;
+  }
+  fclose(statm);
+
+  getrlimit(RLIMIT_AS, &old_limit);
+  limit = old_limit;
+  limit.rlim_cur = (rlim_t) pages * sysconf(_SC_PAGESIZE) + 128 * 1024 * 1024;
+  setrlimit(RLIMIT_AS, &limit);
+  result = pg_query_scan(input);
+  setrlimit(RLIMIT_AS, &old_limit);
+
+  ok = result.error != NULL && strcmp(result.error->message, "out of memory") == 0;
+  if (ok) {
+    printf(".");
+  } else {
+    printf("INVALID result for out of memory scan: %s\n", result.error ? result.error->message : "no error");
+  }
+
+  pg_query_free_scan_result(result);
+  free(input);
+  return ok;
+}
+#endif
+
 int main() {
   size_t i;
   size_t j;
@@ -60,6 +112,11 @@ int main() {
 
     pg_query_free_scan_result(result);
   }
+
+#if defined(__linux__) && !defined(USE_VALGRIND)
+  if (!test_scan_out_of_memory())
+    ret_code = -1;
+#endif
 
   printf("\n");
 

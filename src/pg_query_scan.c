@@ -23,6 +23,15 @@ struct yyguts_t
   size_t yyleng_r;
 };
 
+static void free_scan_tokens(PgQuery__ScanToken **tokens, size_t n_tokens)
+{
+  size_t i;
+
+  for (i = 0; i < n_tokens; i++)
+    free(tokens[i]);
+  free(tokens);
+}
+
 PgQueryScanResult pg_query_scan(const char* input)
 {
   MemoryContext ctx = NULL;
@@ -77,6 +86,8 @@ PgQueryScanResult pg_query_scan(const char* input)
     scanner_finish(yyscanner);
 
     output_tokens = malloc(sizeof(PgQuery__ScanToken *) * token_count);
+    if (output_tokens == NULL && token_count > 0)
+      ereport(ERROR, (errcode(ERRCODE_OUT_OF_MEMORY), errmsg("out of memory")));
 
     /* initialize the flex scanner --- should match raw_parser() */
     yyscanner = scanner_init(input, &yyextra, &ScanKeywords, ScanKeywordTokens);
@@ -91,6 +102,11 @@ PgQueryScanResult pg_query_scan(const char* input)
       if (tok == 0) break;
 
       output_tokens[i] = malloc(sizeof(PgQuery__ScanToken));
+      if (output_tokens[i] == NULL)
+      {
+        free_scan_tokens(output_tokens, i);
+        ereport(ERROR, (errcode(ERRCODE_OUT_OF_MEMORY), errmsg("out of memory")));
+      }
       pg_query__scan_token__init(output_tokens[i]);
       output_tokens[i]->start = yylloc;
       if (tok == SCONST || tok == USCONST || tok == BCONST || tok == XCONST || tok == IDENT || tok == UIDENT || tok == C_COMMENT) {
@@ -115,12 +131,15 @@ PgQueryScanResult pg_query_scan(const char* input)
     scan_result.tokens = output_tokens;
     result.pbuf.len = pg_query__scan_result__get_packed_size(&scan_result);
     result.pbuf.data = malloc(result.pbuf.len);
+    if (result.pbuf.data == NULL)
+    {
+      result.pbuf.len = 0;
+      free_scan_tokens(output_tokens, token_count);
+      ereport(ERROR, (errcode(ERRCODE_OUT_OF_MEMORY), errmsg("out of memory")));
+    }
     pg_query__scan_result__pack(&scan_result, (void*) result.pbuf.data);
 
-    for (i = 0; i < token_count; i++) {
-      free(output_tokens[i]);
-    }
-    free(output_tokens);
+    free_scan_tokens(output_tokens, token_count);
 
 #ifndef DEBUG
     // Save stderr for result
