@@ -1,6 +1,7 @@
 #include "postgres_deparse.h"
 
 #include "postgres.h"
+#include "miscadmin.h"
 #include "catalog/index.h"
 #include "catalog/pg_am.h"
 #include "catalog/pg_attribute.h"
@@ -784,6 +785,7 @@ static void deparseCExpr(DeparseState *state, Node *node);
 // "a_expr" in gram.y
 static void deparseExpr(DeparseState *state, Node *node, DeparseNodeContext context)
 {
+	check_stack_depth();
 	if (node == NULL)
 		return;
 	switch (nodeTag(node))
