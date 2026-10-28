@@ -146,3 +146,14 @@ stack_is_too_deep(void)
 #if defined(HAVE_GETRLIMIT)
 #else
 #endif
+
+/* libpg-query-node: set the stack-depth reference point and limit from the embedder. */
+void
+pg_query_set_stack_limit(size_t bytes)
+{
+	char		here;
+
+	stack_base_ptr = &here;
+	max_stack_depth_bytes = (ssize_t) bytes;
+	max_stack_depth = (int) (bytes / 1024);
+}
