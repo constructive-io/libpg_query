@@ -5,6 +5,8 @@
 #include "pg_query_fingerprint.h"
 
 #include "postgres.h"
+#include "miscadmin.h"
+#define XXH_STATIC_LINKING_ONLY
 #include "xxhash/xxhash.h"
 #include "lib/ilist.h"
 
@@ -225,6 +227,33 @@ _fingerprintList(FingerprintContext *ctx, const List *node, const void *parent, 
 	}
 }
 
+/*
+ * Hash states come from the current memory context rather than malloc, so an
+ * error thrown mid-fingerprint (e.g. stack depth exceeded) cannot leak them.
+ * Keeps XXH3's 64-byte alignment the same way XXH_alignedMalloc does.
+ */
+static XXH3_state_t *
+_fingerprintCreateState(void)
+{
+	char	   *base = palloc0(sizeof(XXH3_state_t) + 64);
+	size_t		offset = 64 - ((uintptr_t) base & 63);
+	char	   *ptr = base + offset;
+
+	ptr[-1] = (char) offset;
+	return (XXH3_state_t *) ptr;
+}
+
+static void
+_fingerprintFreeState(XXH3_state_t *state)
+{
+	char	   *ptr = (char *) state;
+
+	pfree(ptr - (unsigned char) ptr[-1]);
+}
+
+#define XXH3_createState _fingerprintCreateState
+#define XXH3_freeState _fingerprintFreeState
+
 static void
 _fingerprintInitContext(FingerprintContext *ctx, FingerprintContext *parent, bool write_tokens)
 {
@@ -263,6 +292,7 @@ _fingerprintFreeContext(FingerprintContext *ctx) {
 void
 _fingerprintNode(FingerprintContext *ctx, const void *obj, const void *parent, char *field_name, unsigned int depth)
 {
+	check_stack_depth();
 	// Some queries are overly complex in their parsetree - lets consistently cut them off at 100 nodes deep
 	if (depth >= 100) {
 		return;
@@ -327,10 +357,12 @@ uint64_t pg_query_fingerprint_node(const void *node)
 PgQueryFingerprintResult pg_query_fingerprint_with_opts(const char* input, int parser_options, bool printTokens)
 {
 	MemoryContext ctx = NULL;
+	MemoryContext mem_ctx;
 	PgQueryInternalParsetreeAndError parsetree_and_error;
 	PgQueryFingerprintResult result = {0};
 
 	ctx = pg_query_enter_memory_context();
+	mem_ctx = ctx;
 
 	parsetree_and_error = pg_query_raw_parse(input, parser_options);
 
@@ -345,7 +377,34 @@ PgQueryFingerprintResult pg_query_fingerprint_with_opts(const char* input, int p
 		_fingerprintInitContext(&ctx, NULL, printTokens);
 
 		if (parsetree_and_error.tree != NULL) {
-			_fingerprintNode(&ctx, parsetree_and_error.tree, NULL, NULL, 0);
+			PG_TRY();
+			{
+				_fingerprintNode(&ctx, parsetree_and_error.tree, NULL, NULL, 0);
+			}
+			PG_CATCH();
+			{
+				ErrorData* error_data;
+				PgQueryError* error;
+
+				MemoryContextSwitchTo(mem_ctx);
+				error_data = CopyErrorData();
+				error = malloc(sizeof(PgQueryError));
+				error->message   = strdup(error_data->message);
+				error->filename  = strdup(error_data->filename);
+				error->funcname  = strdup(error_data->funcname);
+				error->context   = NULL;
+				error->lineno    = error_data->lineno;
+				error->cursorpos = error_data->cursorpos;
+				result.error = error;
+				FlushErrorState();
+			}
+			PG_END_TRY();
+
+			if (result.error != NULL) {
+				_fingerprintFreeContext(&ctx);
+				pg_query_exit_memory_context(mem_ctx);
+				return result;
+			}
 		}
 
 		if (printTokens) {

@@ -1,4 +1,6 @@
 #include "pg_query.h"
+#include "postgres.h"
+#include "miscadmin.h"
 #include "pg_query_json_plpgsql.h"
 
 #include "pg_query_json_helper.c"
@@ -138,6 +140,7 @@ static void dump_type(StringInfo out, PLpgSQL_type *node);
 static void
 dump_stmt(StringInfo out, PLpgSQL_stmt *node)
 {
+	check_stack_depth();
 	appendStringInfoChar(out, '{');
 	switch (node->cmd_type)
 	{
@@ -625,6 +628,7 @@ dump_getdiag_item(StringInfo out, PLpgSQL_diag_item *node)
 static void
 dump_expr(StringInfo out, PLpgSQL_expr *node)
 {
+	check_stack_depth();
 	WRITE_NODE_TYPE("PLpgSQL_expr");
 
 	WRITE_STRING_FIELD(query, query, query);
@@ -806,7 +810,10 @@ pg_query_plpgsql_reset_aliases(void)
 	int i;
 	for (i = 0; i < plpgsql_naliases; i++)
 		free(plpgsql_aliases[i].name);
+	free(plpgsql_aliases);
+	plpgsql_aliases = NULL;
 	plpgsql_naliases = 0;
+	plpgsql_aliases_size = 0;
 }
 
 void
