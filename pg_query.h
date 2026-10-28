@@ -161,6 +161,11 @@ void pg_query_free_summary_parse_result(PgQuerySummaryParseResult result);
 // Optional, cleans up the top-level memory context (automatically done for threads that exit)
 void pg_query_exit(void);
 
+// Optional, makes deeply nested input fail with "stack depth limit exceeded"
+// instead of overflowing the native stack. Allows `bytes` of stack below the
+// caller's frame, so call it from an outer frame. The setting is per thread.
+void pg_query_set_stack_limit(size_t bytes);
+
 // Postgres version information
 #define PG_MAJORVERSION "17"
 #define PG_VERSION "17.7"
