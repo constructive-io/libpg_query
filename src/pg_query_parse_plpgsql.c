@@ -667,8 +667,37 @@ PgQueryPlpgsqlParseResult pg_query_parse_plpgsql(const char* input)
 			char *new_out;
 			size_t new_out_len;
 
-			func_json = plpgsqlToJSON(func_and_error.func);
+			PG_TRY();
+			{
+				func_json = plpgsqlToJSON(func_and_error.func);
+			}
+			PG_CATCH();
+			{
+				ErrorData* error_data;
+				PgQueryError* error;
+
+				MemoryContextSwitchTo(ctx);
+				error_data = CopyErrorData();
+				error = malloc(sizeof(PgQueryError));
+				error->message   = strdup(error_data->message);
+				error->filename  = strdup(error_data->filename);
+				error->funcname  = strdup(error_data->funcname);
+				error->context   = NULL;
+				error->lineno    = error_data->lineno;
+				error->cursorpos = error_data->cursorpos;
+				result.error = error;
+				FlushErrorState();
+			}
+			PG_END_TRY();
+
 			plpgsql_free_function_memory(func_and_error.func);
+
+			if (result.error != NULL) {
+				free(parse_result.stderr_buffer);
+				pg_query_plpgsql_reset_aliases();
+				pg_query_exit_memory_context(ctx);
+				return result;
+			}
 
 			new_out_len = strlen(result.plpgsql_funcs) + strlen(func_json) + 3;
 			new_out = malloc(new_out_len);
