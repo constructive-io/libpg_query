@@ -37,24 +37,19 @@ SearchSysCache1(int cacheId,
     t->typarray = bt->typarray;
     t->typcollation = bt->typcollation;
 
-    t->oid = DatumGetObjectId(key1);
-    t->typisdefined = true;
-
-    /*
-     * The builtin table doesn't carry typelem/typsubscript, so derive them for
-     * array types (base->typarray walked in reverse). Without this,
-     * get_element_type()/IsTrueArrayType() treat every type as a non-array,
-     * which makes interpret_function_parameter_list() reject any VARIADIC
-     * parameter with "VARIADIC parameter must be an array".
-     */
+    /* Supply the element type and subscript handler for true builtin arrays. */
+    for (size_t i = 0; i < lengthof(pg_query_builtin_types); i++)
     {
-        Oid elem = pg_query_builtin_type_elem_by_oid(t->oid);
-        if (OidIsValid(elem))
+        if (pg_query_builtin_types[i].typarray == DatumGetObjectId(key1))
         {
-            t->typelem = elem;
+            t->typelem = pg_query_builtin_types[i].oid;
             t->typsubscript = F_ARRAY_SUBSCRIPT_HANDLER;
+            break;
         }
     }
+
+    t->oid = DatumGetObjectId(key1);
+    t->typisdefined = true;
 
 	// The following logic is copied from heap_form_tuple, but pretends there are no nulls, and copies t_data directly
 

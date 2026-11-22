@@ -1,0 +1,28 @@
+Allow bare RETURN in scalar and trigger functions and supply an implicit
+trailing RETURN for all return types in the standalone parser.
+
+diff --git a/src/pl/plpgsql/src/pl_comp.c b/src/pl/plpgsql/src/pl_comp.c
+--- a/src/pl/plpgsql/src/pl_comp.c
++++ b/src/pl/plpgsql/src/pl_comp.c
+@@ -689,8 +689,6 @@
+ 	 * of the statement list during parsing.
+ 	 */
+-	if (num_out_args > 0 || function->fn_rettype == VOIDOID ||
+-		function->fn_retset)
+-		add_dummy_return(function);
++	add_dummy_return(function);
+ 
+ 	/*
+ 	 * Complete the function's info
+diff --git a/src/pl/plpgsql/src/pl_gram.y b/src/pl/plpgsql/src/pl_gram.y
+--- a/src/pl/plpgsql/src/pl_gram.y
++++ b/src/pl/plpgsql/src/pl_gram.y
+@@ -3406,5 +3406,8 @@
+ 		int			tok = yylex(yylvalp, yyllocp, yyscanner);
+ 
++		if (tok == ';')
++			return (PLpgSQL_stmt *) new;
++
+ 		if (tok == T_DATUM && plpgsql_peek(yyscanner) == ';' &&
+ 			(yylvalp->wdatum.datum->dtype == PLPGSQL_DTYPE_VAR ||
+ 			 yylvalp->wdatum.datum->dtype == PLPGSQL_DTYPE_PROMISE ||

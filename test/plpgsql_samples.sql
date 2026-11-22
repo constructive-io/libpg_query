@@ -16,6 +16,20 @@ END
 $BODY$
 LANGUAGE plpgsql;
 
+DO $$
+DECLARE
+    amount NuMeRiC ( 10, 2 )  := 0;
+    bounded pg_catalog."int4" [3][2];
+    "Quoted Var" VaRChAr(17) -- trailing comment is not part of the type
+        ;
+    copy "Quoted Var"%type;
+    column_copy "Sales"."Order"."Item" % TyPe ARRAY[2];
+    row_copy "Sales"."Order"%ROWTYPE;
+BEGIN
+    NULL;
+END;
+$$;
+
 CREATE FUNCTION get_available_flightid(date) RETURNS SETOF integer AS
 $BODY$
 BEGIN
@@ -611,43 +625,68 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Regression samples for pg_query_parse_plpgsql() PG 18 issues, see
--- https://github.com/pganalyze/libpg_query/issues/337
-
--- Regression: trigger functions must not emit malformed JSON for the
--- PLPGSQL_DTYPE_PROMISE datums (tg_name, tg_when, ...) created for TG_* vars.
-CREATE FUNCTION audit_trigger() RETURNS trigger LANGUAGE plpgsql AS $$
-BEGIN
-  NEW.updated_at := now();
-  RETURN NEW;
-END;
-$$;
-
--- Regression: schema-qualified variable types outside pg_catalog/public must
--- parse instead of returning "Not implemented (LookupExplicitNamespace ...)".
-CREATE FUNCTION test_qualified_type() RETURNS void LANGUAGE plpgsql AS $$
+-- Record variables with options and a default value
+CREATE FUNCTION record_default() RETURNS void AS $$
 DECLARE
-    v_user "my_schema".users;
+    r CONSTANT mytable NOT NULL := ROW(1);
 BEGIN
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE FUNCTION qualified_schema_types() RETURNS void AS $$
+DECLARE
+    custom_value myschema.mytype;
+    custom_row myschema.mytable%ROWTYPE;
+    custom_column myschema.mytable.mycolumn%TYPE;
+    catalog_value pg_catalog.int4;
+    public_value public.mytype;
+BEGIN
+END;
+$$ LANGUAGE plpgsql;
+
+-- Regression: RETURN / RETURN NEXT of a variable must keep the return target
+-- (retvarno) in the JSON output; an expression return has retvarno -1 and
+-- keeps only its expr.
+CREATE FUNCTION return_composite_variable() RETURNS mytable AS $$
+DECLARE
+    r mytable;
+BEGIN
+    RETURN r;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE FUNCTION return_next_composite_variable() RETURNS SETOF mytable AS $$
+DECLARE
+    r mytable;
+BEGIN
+    FOR r IN SELECT * FROM mytable LOOP
+        RETURN NEXT r;
+    END LOOP;
     RETURN;
 END;
-$$;
+$$ LANGUAGE plpgsql;
 
--- Regression: RETURN <variable> must keep the return target (retvarno) in the
--- JSON output rather than dropping the expression entirely.
-CREATE FUNCTION return_variable() RETURNS int LANGUAGE plpgsql AS $$
-DECLARE v int := 1;
+CREATE FUNCTION return_out_param(OUT a int) AS $$
 BEGIN
-    RETURN v;
+    a := 1;
+    RETURN;
 END;
-$$;
+$$ LANGUAGE plpgsql;
 
--- Regression: custom-type arrays in DECLARE must parse (previously failed
--- with 'variable "v" has pseudo-type _record').
+CREATE FUNCTION return_scalar_expression() RETURNS int AS $$
+DECLARE
+    v int := 1;
+BEGIN
+    RETURN v + 1;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Regression: custom-type arrays in DECLARE must parse.
 CREATE FUNCTION custom_type_arrays() RETURNS void LANGUAGE plpgsql AS $$
 DECLARE
     v mytype[];
-    w myschema.mytype[];
+    w public.mytype[];
+    y myschema.mytype[];
     x "myType"[];
     ok1 int[];
     ok2 text[];
@@ -657,8 +696,7 @@ BEGIN
 END;
 $$;
 
--- Regression: bare RETURN must be accepted in functions with a scalar or
--- trigger return type (previously failed with 'missing expression').
+-- Regression: bare RETURN is accepted for scalar and trigger return types.
 CREATE FUNCTION bare_return_scalar() RETURNS int LANGUAGE plpgsql AS $$
 BEGIN
     RETURN;
@@ -671,9 +709,7 @@ BEGIN
 END;
 $$;
 
--- Regression: non-void functions must get the implicit trailing RETURN, and
--- declared type names must keep their SQL spelling and typmods
--- (integer, not int4; varchar(10), not varchar).
+-- Regression: implicit RETURN and source spelling of declared types.
 CREATE FUNCTION implicit_return_and_typenames() RETURNS int LANGUAGE plpgsql AS $$
 DECLARE
     v_id integer;
@@ -684,31 +720,51 @@ BEGIN
 END;
 $$;
 
--- Regression: VARIADIC array parameters must parse. Compiling a VARIADIC
--- parameter runs get_element_type() on the array type; the standalone
--- SearchSysCache1 mock previously left typelem/typsubscript unset, so every
--- array read as a non-array and interpret_function_parameter_list() rejected
--- the parameter with "VARIADIC parameter must be an array".
-CREATE FUNCTION variadic_text(VARIADIC strs text[]) RETURNS jsonb LANGUAGE plpgsql IMMUTABLE AS $$
+CREATE FUNCTION alias_order(i integer) RETURNS integer AS $$
+DECLARE
+    input_value ALIAS FOR $1;
+    increment integer := 1;
+    "next""value" ALIAS FOR increment;
 BEGIN
-    RETURN to_jsonb(strs);
+    RETURN input_value + "next""value";
 END;
-$$;
+$$ LANGUAGE plpgsql;
 
-CREATE FUNCTION variadic_jsonb(VARIADIC nodes jsonb[]) RETURNS jsonb LANGUAGE plpgsql IMMUTABLE AS $$
+-- Custom-type arrays are plain array variables, so they can share a multi-item INTO list
+CREATE FUNCTION custom_array_multi_into() RETURNS void AS $$
+DECLARE
+    v mytype[];
+    y myschema.mytype[];
+    n integer;
 BEGIN
-    RETURN to_jsonb(nodes);
+    SELECT a, b, c INTO v, y, n FROM t;
 END;
-$$;
+$$ LANGUAGE plpgsql;
 
--- Regression: a schema-qualified function installs its (unqualified) name as
--- the top-level PL/pgSQL block label, so a label-qualified reference such as
--- SELECT ... INTO <funcname>.<param> must resolve to the parameter. The
--- standalone parser previously took the FIRST component of the qualified name
--- (the schema) as the function name via linitial(), so the block label was the
--- schema and "check_password.password" failed with "not a known variable".
-CREATE FUNCTION auth.check_password(IN password text) RETURNS void LANGUAGE plpgsql AS $$
+-- Non-PL/pgSQL functions are skipped and carry no OUT parameter
+CREATE FUNCTION skipped_sql_function() RETURNS integer AS $$ SELECT 1 $$ LANGUAGE sql;
+
+-- Only pg_catalog trigger types make a trigger; schemas named trigger hold ordinary types
+CREATE FUNCTION schema_named_trigger(a integer) RETURNS trigger.mytype AS $$
 BEGIN
-    SELECT trim(check_password.password) INTO check_password.password;
+    RETURN NULL;
 END;
-$$;
+$$ LANGUAGE plpgsql;
+
+CREATE FUNCTION schema_named_event_trigger(a integer) RETURNS event_trigger.mytype AS $$
+BEGIN
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE FUNCTION qualified_trigger_type() RETURNS pg_catalog.trigger AS $$
+BEGIN
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE FUNCTION db_qualified_trigger_type() RETURNS mydb.pg_catalog.trigger AS $$
+BEGIN
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;

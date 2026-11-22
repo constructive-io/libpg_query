@@ -24,8 +24,6 @@ typedef struct {
 	PgQueryError* error;
 } PgQueryInternalPlpgsqlFuncAndError;
 
-static PgQueryInternalPlpgsqlFuncAndError pg_query_raw_parse_plpgsql(Node* stmt);
-
 /*
  *	 Examine the RETURNS clause of the CREATE FUNCTION statement
  *	 and return information about it as *prorettype_p and *returnsSet_p.
@@ -119,6 +117,15 @@ compute_return_type(TypeName *returnType, Oid languageOid,
 	*returnsSet_p = returnType->setof;
 }
 
+/* Placeholder for a non-PL/pgSQL function, marked as having no OUT parameter */
+static PLpgSQL_function *pg_query_new_skipped_function(void)
+{
+	PLpgSQL_function *func = (PLpgSQL_function *) palloc0(sizeof(PLpgSQL_function));
+
+	func->out_param_varno = -1;
+	return func;
+}
+
 static PLpgSQL_function *compile_do_stmt(DoStmt* stmt)
 {
 	char *proc_source = NULL;
@@ -140,10 +147,13 @@ static PLpgSQL_function *compile_do_stmt(DoStmt* stmt)
 		}
 	}
 
-	assert(proc_source != NULL);
+	if (proc_source == NULL)
+		ereport(ERROR,
+				(errcode(ERRCODE_SYNTAX_ERROR),
+				 errmsg("no inline code specified")));
 
 	if(strcmp(language, "plpgsql") != 0) {
-		return (PLpgSQL_function *) palloc0(sizeof(PLpgSQL_function));
+		return pg_query_new_skipped_function();
 	}
 	return plpgsql_compile_inline(proc_source);
 
@@ -293,29 +303,23 @@ pg_query_create_function(CreateFunctionStmt *stmt,
 	Oid			variadicArgType;
 	Oid			requiredResultType;
 
-	/*
-	 * The function name is the last component of the (possibly schema- or
-	 * catalog-qualified) name list; leading components are the namespace.
-	 * Upstream CreateFunction derives it the same way via
-	 * QualifiedNameGetCreationNamespace(). Taking linitial() here would use
-	 * the schema as the function name, which plpgsql_compile then installs as
-	 * the top-level block label — breaking label-qualified variable references
-	 * such as SELECT ... INTO <funcname>.<param> in a schema-qualified
-	 * function.
-	 */
 	funcname = strVal(llast(stmt->funcname));
 
 	*is_dml_trigger = false;
 	*is_event_trigger = false;
-	if (stmt->returnType != NULL)
+	/* The trigger pseudo-types live in pg_catalog; other schemas hold ordinary types */
+	if (stmt->returnType != NULL &&
+		(list_length(stmt->returnType->names) == 1 ||
+		 strcmp(strVal(list_nth(stmt->returnType->names,
+								list_length(stmt->returnType->names) - 2)),
+				"pg_catalog") == 0))
 	{
-		foreach_ptr(String, val, stmt->returnType->names)
-		{
-			if (strcmp(val->sval, "trigger") == 0)
-				*is_dml_trigger = true;
-			else if (strcmp(val->sval, "event_trigger") == 0)
-				*is_event_trigger = true;
-		}
+		char	   *rettypname = strVal(llast(stmt->returnType->names));
+
+		if (strcmp(rettypname, "trigger") == 0)
+			*is_dml_trigger = true;
+		else if (strcmp(rettypname, "event_trigger") == 0)
+			*is_event_trigger = true;
 	}
 
 	interpret_function_parameter_list(palloc0(sizeof(ParseState)),
@@ -431,10 +435,24 @@ compile_create_function_stmt_via_callback(CreateFunctionStmt *stmt)
 		}
 	}
 
-	assert(proc_source != NULL);
-
 	if (strcmp(language, "plpgsql") != 0)
-		return (PLpgSQL_function *) palloc0(sizeof(PLpgSQL_function));
+		return pg_query_new_skipped_function();
+
+	/* Mirrors the checks in upstream interpret_AS_clause */
+	if (stmt->sql_body == NULL && proc_source == NULL)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
+				 errmsg("no function body specified")));
+
+	if (stmt->sql_body != NULL && proc_source != NULL)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
+				 errmsg("duplicate function body specified")));
+
+	if (stmt->sql_body != NULL)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
+				 errmsg("inline SQL function body only valid for language SQL")));
 
 	wrapper = pg_query_create_function(stmt, language, proc_source,
 									   &is_dml_trigger, &is_event_trigger);
@@ -467,7 +485,8 @@ compile_create_function_stmt_via_callback(CreateFunctionStmt *stmt)
 	return function;
 }
 
-PgQueryInternalPlpgsqlFuncAndError pg_query_raw_parse_plpgsql(Node* stmt)
+static PgQueryInternalPlpgsqlFuncAndError
+pg_query_raw_parse_plpgsql(Node *stmt, PgQueryPlpgsqlAliases *aliases)
 {
 	PgQueryInternalPlpgsqlFuncAndError result = {0};
 	MemoryContext cctx = CurrentMemoryContext;
@@ -498,9 +517,7 @@ PgQueryInternalPlpgsqlFuncAndError pg_query_raw_parse_plpgsql(Node* stmt)
 	close(stderr_pipe[1]);
 #endif
 
-	/* Clear aliases recorded from any previous function compile */
-	pg_query_plpgsql_reset_aliases();
-
+	pg_query_plpgsql_set_aliases(aliases);
 	PG_TRY();
 	{
 		if (IsA(stmt, CreateFunctionStmt)) {
@@ -546,6 +563,7 @@ PgQueryInternalPlpgsqlFuncAndError pg_query_raw_parse_plpgsql(Node* stmt)
 		FlushErrorState();
 	}
 	PG_END_TRY();
+	pg_query_plpgsql_set_aliases(NULL);
 
 #ifndef DEBUG
 	// Restore stderr, close pipe
@@ -624,6 +642,7 @@ PgQueryPlpgsqlParseResult pg_query_parse_plpgsql(const char* input)
 
 	if (statements.stmts_count == 0) {
 		result.plpgsql_funcs = strdup("[]");
+		free(parse_result.stderr_buffer);
 		pg_query_exit_memory_context(ctx);
 		return result;
 	}
@@ -632,13 +651,17 @@ PgQueryPlpgsqlParseResult pg_query_parse_plpgsql(const char* input)
 
 	for (i = 0; i < statements.stmts_count; i++) {
 		PgQueryInternalPlpgsqlFuncAndError func_and_error;
+		PgQueryPlpgsqlAliases aliases = {0};
 
-		func_and_error = pg_query_raw_parse_plpgsql(statements.stmts[i]);
+		func_and_error = pg_query_raw_parse_plpgsql(statements.stmts[i], &aliases);
 
 		// These are all malloc-ed and will survive exiting the memory context, the caller is responsible to free them now
 		result.error = func_and_error.error;
 
 		if (result.error != NULL) {
+			if (func_and_error.func != NULL)
+				plpgsql_free_function_memory(func_and_error.func);
+			free(parse_result.stderr_buffer);
 			pg_query_exit_memory_context(ctx);
 			return result;
 		}
@@ -648,7 +671,39 @@ PgQueryPlpgsqlParseResult pg_query_parse_plpgsql(const char* input)
 			char *new_out;
 			size_t new_out_len;
 
-			func_json = plpgsqlToJSON(func_and_error.func);
+			PG_TRY();
+			{
+				func_json = plpgsqlToJSON(func_and_error.func, &aliases);
+			}
+			PG_CATCH();
+			{
+				ErrorData *error_data;
+				PgQueryError *error;
+
+				MemoryContextSwitchTo(ctx);
+				error_data = CopyErrorData();
+				error = malloc(sizeof(PgQueryError));
+				error->message = strdup(error_data->message);
+				error->filename = strdup(error_data->filename);
+				error->funcname = strdup(error_data->funcname);
+				error->context = error_data->context ? strdup(error_data->context) : NULL;
+				error->lineno = error_data->lineno;
+				error->cursorpos = error_data->cursorpos;
+				result.error = error;
+				FlushErrorState();
+			}
+			PG_END_TRY();
+
+			if (result.error != NULL) {
+				/* Drop the compiled tree without walking it again. No plans were built. */
+				if (func_and_error.func->fn_cxt)
+					MemoryContextDelete(func_and_error.func->fn_cxt);
+				free(result.plpgsql_funcs);
+				result.plpgsql_funcs = NULL;
+				free(parse_result.stderr_buffer);
+				pg_query_exit_memory_context(ctx);
+				return result;
+			}
 			plpgsql_free_function_memory(func_and_error.func);
 
 			new_out_len = strlen(result.plpgsql_funcs) + strlen(func_json) + 3;

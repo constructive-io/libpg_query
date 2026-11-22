@@ -10,6 +10,40 @@
 #include <fcntl.h>
 #include <assert.h>
 
+static bool
+expect_error(const char *input, const char *expected_message)
+{
+	PgQueryPlpgsqlParseResult result = pg_query_parse_plpgsql(input);
+	bool success = result.error != NULL &&
+		strcmp(result.error->message, expected_message) == 0;
+
+	if (!success)
+	{
+		printf("Expected error: %s\n", expected_message);
+		printf("Actual error: %s\n",
+			result.error == NULL ? "(none)" : result.error->message);
+	}
+
+	pg_query_free_plpgsql_parse_result(result);
+	return success;
+}
+
+static bool
+expect_no_error(const char *input)
+{
+	PgQueryPlpgsqlParseResult result = pg_query_parse_plpgsql(input);
+	bool success = result.error == NULL;
+
+	if (!success)
+	{
+		printf("Expected no error for: %s\n", input);
+		printf("Actual error: %s\n", result.error->message);
+	}
+
+	pg_query_free_plpgsql_parse_result(result);
+	return success;
+}
+
 int main() {
 	bool ret_code = EXIT_SUCCESS;
 	char *sample_buffer;
@@ -54,6 +88,99 @@ int main() {
 	fprintf(f_out, "%s\n", result.plpgsql_funcs);
 	fclose(f_out);
 
+	pg_query_free_plpgsql_parse_result(result);
+
+	if (!expect_error("CREATE FUNCTION f(int) RETURNS int LANGUAGE plpgsql AS $$ "
+					  "DECLARE arg ALIAS FOR $1; BEGIN NULL; $$;",
+					  "syntax error at end of input"))
+		ret_code = EXIT_FAILURE;
+
+	if (!expect_error("CREATE FUNCTION f() RETURNS void LANGUAGE plpgsql;",
+				  "no function body specified"))
+		ret_code = EXIT_FAILURE;
+
+	if (!expect_error("DO LANGUAGE plpgsql;",
+				  "no inline code specified"))
+		ret_code = EXIT_FAILURE;
+
+	if (!expect_error("CREATE FUNCTION f() RETURNS int LANGUAGE plpgsql RETURN 1;",
+				  "inline SQL function body only valid for language SQL"))
+		ret_code = EXIT_FAILURE;
+
+	if (!expect_error("CREATE FUNCTION f() RETURNS int AS $$ BEGIN RETURN 1; END; $$ LANGUAGE plpgsql RETURN 1;",
+				  "duplicate function body specified"))
+		ret_code = EXIT_FAILURE;
+
+	if (!expect_no_error("CREATE FUNCTION f() RETURNS int LANGUAGE sql RETURN 1;"))
+		ret_code = EXIT_FAILURE;
+
+	if (!expect_no_error("CREATE FUNCTION f() RETURNS int LANGUAGE sql BEGIN ATOMIC SELECT 1; END;"))
+		ret_code = EXIT_FAILURE;
+
+	if (!expect_no_error("SELECT 1;"))
+		ret_code = EXIT_FAILURE;
+
+	if (!expect_no_error("CREATE FUNCTION check_password(password text) RETURNS void AS $$ BEGIN SELECT trim(check_password.password) INTO check_password.password; END; $$ LANGUAGE plpgsql;"))
+		ret_code = EXIT_FAILURE;
+
+	if (!expect_no_error("CREATE FUNCTION auth.check_password(password text) RETURNS void AS $$ BEGIN SELECT trim(check_password.password) INTO check_password.password; END; $$ LANGUAGE plpgsql;"))
+		ret_code = EXIT_FAILURE;
+
+	if (!expect_no_error("CREATE FUNCTION db.auth.check_password(password text) RETURNS void AS $$ BEGIN SELECT trim(check_password.password) INTO check_password.password; END; $$ LANGUAGE plpgsql;"))
+		ret_code = EXIT_FAILURE;
+
+	if (!expect_no_error("CREATE FUNCTION auth.\"CheckPassword\"(password text) RETURNS void AS $$ BEGIN SELECT password INTO \"CheckPassword\".password; END; $$ LANGUAGE plpgsql;"))
+		ret_code = EXIT_FAILURE;
+
+	if (!expect_error("CREATE FUNCTION auth.check_password(password text) RETURNS void AS $$ BEGIN SELECT password INTO auth.password; END; $$ LANGUAGE plpgsql;",
+				  "\"auth.password\" is not a known variable"))
+		ret_code = EXIT_FAILURE;
+
+	if (!expect_no_error("CREATE FUNCTION f(VARIADIC r int[]) RETURNS int LANGUAGE plpgsql AS $$ BEGIN RETURN 1; END; $$;"))
+		ret_code = EXIT_FAILURE;
+
+	if (!expect_no_error("CREATE FUNCTION f(VARIADIC r integer[]) RETURNS int LANGUAGE plpgsql AS $$ BEGIN RETURN 1; END; $$;"))
+		ret_code = EXIT_FAILURE;
+
+	if (!expect_no_error("CREATE FUNCTION f(VARIADIC r _int4) RETURNS int LANGUAGE plpgsql AS $$ BEGIN RETURN 1; END; $$;"))
+		ret_code = EXIT_FAILURE;
+
+	if (!expect_no_error("CREATE FUNCTION f(VARIADIC r text[]) RETURNS int LANGUAGE plpgsql AS $$ BEGIN RETURN 1; END; $$;"))
+		ret_code = EXIT_FAILURE;
+
+	if (!expect_no_error("CREATE FUNCTION f(VARIADIC r jsonb[]) RETURNS jsonb LANGUAGE plpgsql AS $$ BEGIN RETURN to_jsonb(r); END; $$;"))
+		ret_code = EXIT_FAILURE;
+
+	if (!expect_no_error("CREATE FUNCTION f(VARIADIC r anyarray) RETURNS int LANGUAGE plpgsql AS $$ BEGIN RETURN 1; END; $$;"))
+		ret_code = EXIT_FAILURE;
+
+	if (!expect_no_error("CREATE FUNCTION f(VARIADIC r text[] DEFAULT ARRAY[]::text[]) RETURNS int LANGUAGE plpgsql AS $$ BEGIN RETURN 1; END; $$;"))
+		ret_code = EXIT_FAILURE;
+
+	if (!expect_error("CREATE FUNCTION f(VARIADIC r int) RETURNS int LANGUAGE plpgsql AS $$ BEGIN RETURN 1; END; $$;",
+				  "VARIADIC parameter must be an array"))
+		ret_code = EXIT_FAILURE;
+
+	if (!expect_no_error("CREATE FUNCTION bare_scalar() RETURNS int AS $$ BEGIN RETURN; END; $$ LANGUAGE plpgsql;"))
+		ret_code = EXIT_FAILURE;
+
+	if (!expect_no_error("CREATE FUNCTION bare_trigger() RETURNS trigger AS $$ BEGIN RETURN; END; $$ LANGUAGE plpgsql;"))
+		ret_code = EXIT_FAILURE;
+
+	result = pg_query_parse_plpgsql("CREATE FUNCTION implicit_return() RETURNS int AS $$ BEGIN NULL; END; $$ LANGUAGE plpgsql;");
+	if (result.error || !strstr(result.plpgsql_funcs, "\"body\":[{\"PLpgSQL_stmt_return\":{}}]"))
+	{
+		printf("Expected implicit trailing RETURN for scalar function\n");
+		ret_code = EXIT_FAILURE;
+	}
+	pg_query_free_plpgsql_parse_result(result);
+
+	result = pg_query_parse_plpgsql("CREATE FUNCTION empty_body() RETURNS int AS $$ BEGIN END; $$ LANGUAGE plpgsql;");
+	if (result.error || !strstr(result.plpgsql_funcs, "\"body\":[{\"PLpgSQL_stmt_return\":{}}]"))
+	{
+		printf("Expected implicit trailing RETURN for empty scalar function\n");
+		ret_code = EXIT_FAILURE;
+	}
 	pg_query_free_plpgsql_parse_result(result);
 
 	pg_query_exit();

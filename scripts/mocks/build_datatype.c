@@ -13,7 +13,8 @@ build_datatype(HeapTuple typeTup, int32 typmod,
 
 	typ = (PLpgSQL_type *) palloc(sizeof(PLpgSQL_type));
 
-	typ->typname = pstrdup(NameStr(typeStruct->typname));
+	typ->typname = format_type_extended(typeStruct->oid, typmod,
+									   FORMAT_TYPE_TYPEMOD_GIVEN);
 	typ->typoid = typeStruct->oid;
 	switch (typeStruct->typtype)
 	{
@@ -35,6 +36,9 @@ build_datatype(HeapTuple typeTup, int32 typmod,
 		case TYPTYPE_PSEUDO:
 			if (typ->typoid == RECORDOID)
 				typ->ttype = PLPGSQL_TTYPE_REC;
+			else if (typ->typoid == RECORDARRAYOID)
+				/* pg_query: unknown custom types resolve to RECORDOID, so their arrays are plain array variables */
+				typ->ttype = PLPGSQL_TTYPE_SCALAR;
 			else
 				typ->ttype = PLPGSQL_TTYPE_PSEUDO;
 			break;

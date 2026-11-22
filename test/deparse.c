@@ -10,7 +10,6 @@
 #include <fcntl.h>
 
 #include "deparse_tests.c"
-#include "protobuf/pg_query.pb-c.h"
 
 void remove_numeric_key(char *parse_tree_json, char* key)
 {
@@ -47,6 +46,9 @@ void remove_node_locations(char *parse_tree_json)
 	remove_numeric_key(parse_tree_json, "location");
 	remove_numeric_key(parse_tree_json, "name_location");
 	remove_numeric_key(parse_tree_json, "stmt_location");
+	remove_numeric_key(parse_tree_json, "arg_location");
+	remove_numeric_key(parse_tree_json, "conninfo_location");
+	remove_numeric_key(parse_tree_json, "payload_location");
 	remove_numeric_key(parse_tree_json, "rexpr_list_start");
 	remove_numeric_key(parse_tree_json, "rexpr_list_end");
 	remove_numeric_key(parse_tree_json, "list_start");
@@ -624,12 +626,24 @@ int main() {
 	size_t i;
 	int ret_code = EXIT_SUCCESS;
 	int test_ret_code;
+	PgQueryDeparseCommentsResult comments_result;
 
 	for (i = 0; tests[i]; i += 1) {
 		test_ret_code = run_test(tests[i], true, false);
 		if (test_ret_code != EXIT_SUCCESS)
 			ret_code = test_ret_code;
 	}
+
+	// Scanner errors are returned in the result, and must be freed along with
+	// it (checked when running under Valgrind)
+	comments_result = pg_query_deparse_comments_for_query("SELECT 'unterminated");
+	if (comments_result.error == NULL) {
+		ret_code = EXIT_FAILURE;
+		printf("\nINVALID deparse_comments result for unterminated string: expected an error\n");
+	} else {
+		printf(".");
+	}
+	pg_query_free_deparse_comments_result(comments_result);
 
 	for (i = 0; i < deparseFilenameCount; i += 1) {
 		printf("\n%s\n", deparseFilenames[i]);
