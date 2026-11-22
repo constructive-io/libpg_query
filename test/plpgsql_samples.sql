@@ -16,6 +16,20 @@ END
 $BODY$
 LANGUAGE plpgsql;
 
+DO $$
+DECLARE
+    amount NuMeRiC ( 10, 2 )  := 0;
+    bounded pg_catalog."int4" [3][2];
+    "Quoted Var" VaRChAr(17) -- trailing comment is not part of the type
+        ;
+    copy "Quoted Var"%type;
+    column_copy "Sales"."Order"."Item" % TyPe ARRAY[2];
+    row_copy "Sales"."Order"%ROWTYPE;
+BEGIN
+    NULL;
+END;
+$$;
+
 CREATE FUNCTION get_available_flightid(date) RETURNS SETOF integer AS
 $BODY$
 BEGIN
