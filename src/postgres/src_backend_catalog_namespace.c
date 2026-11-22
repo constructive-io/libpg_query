@@ -952,14 +952,11 @@ LookupExplicitNamespace(const char *nspname, bool missing_ok)
 		 */
 	}
 
-	// CHANGED: Only support pg_catalog and public namespace
+	// CHANGED: Without a catalog, resolve user schemas like public.
     if (strcmp(nspname, "pg_catalog") == 0)
         return PG_CATALOG_NAMESPACE;
 
-    if (strcmp(nspname, "public") == 0)
-        return PG_PUBLIC_NAMESPACE;
-
-    elog(ERROR, "Not implemented (LookupExplicitNamespace only supports pg_catalog and public)");
+    return PG_PUBLIC_NAMESPACE;
 
 	/*namespaceId = get_namespace_oid(nspname, missing_ok);
 	if (missing_ok && !OidIsValid(namespaceId))
