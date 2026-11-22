@@ -618,3 +618,40 @@ DECLARE
 BEGIN
 END;
 $$ LANGUAGE plpgsql;
+
+-- Regression: RETURN / RETURN NEXT of a variable must keep the return target
+-- (retvarno) in the JSON output; an expression return has retvarno -1 and
+-- keeps only its expr.
+CREATE FUNCTION return_composite_variable() RETURNS mytable AS $$
+DECLARE
+    r mytable;
+BEGIN
+    RETURN r;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE FUNCTION return_next_composite_variable() RETURNS SETOF mytable AS $$
+DECLARE
+    r mytable;
+BEGIN
+    FOR r IN SELECT * FROM mytable LOOP
+        RETURN NEXT r;
+    END LOOP;
+    RETURN;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE FUNCTION return_out_param(OUT a int) AS $$
+BEGIN
+    a := 1;
+    RETURN;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE FUNCTION return_scalar_expression() RETURNS int AS $$
+DECLARE
+    v int := 1;
+BEGIN
+    RETURN v + 1;
+END;
+$$ LANGUAGE plpgsql;

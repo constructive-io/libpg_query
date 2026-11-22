@@ -507,7 +507,9 @@ dump_return(StringInfo out, PLpgSQL_stmt_return *node)
 
 	WRITE_INT_FIELD(lineno, lineno, lineno);
 	WRITE_EXPR_FIELD(expr);
-	//WRITE_INT_FIELD(retvarno);
+	/* retvarno is -1 when an expression is returned; only emit real datums */
+	if (node->retvarno >= 0)
+		appendStringInfo(out, "\"retvarno\":%d,", node->retvarno);
 }
 
 static void
@@ -517,7 +519,9 @@ dump_return_next(StringInfo out, PLpgSQL_stmt_return_next *node)
 
 	WRITE_INT_FIELD(lineno, lineno, lineno);
 	WRITE_EXPR_FIELD(expr);
-	//WRITE_INT_FIELD(retvarno);
+	/* retvarno is -1 when an expression is returned; only emit real datums */
+	if (node->retvarno >= 0)
+		appendStringInfo(out, "\"retvarno\":%d,", node->retvarno);
 }
 
 static void
