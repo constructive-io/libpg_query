@@ -740,3 +740,6 @@ BEGIN
     SELECT a, b, c INTO v, y, n FROM t;
 END;
 $$ LANGUAGE plpgsql;
+
+-- Non-PL/pgSQL functions are skipped and carry no OUT parameter
+CREATE FUNCTION skipped_sql_function() RETURNS integer AS $$ SELECT 1 $$ LANGUAGE sql;

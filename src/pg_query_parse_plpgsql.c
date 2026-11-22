@@ -117,6 +117,15 @@ compute_return_type(TypeName *returnType, Oid languageOid,
 	*returnsSet_p = returnType->setof;
 }
 
+/* Placeholder for a non-PL/pgSQL function, marked as having no OUT parameter */
+static PLpgSQL_function *pg_query_new_skipped_function(void)
+{
+	PLpgSQL_function *func = (PLpgSQL_function *) palloc0(sizeof(PLpgSQL_function));
+
+	func->out_param_varno = -1;
+	return func;
+}
+
 static PLpgSQL_function *compile_do_stmt(DoStmt* stmt)
 {
 	char *proc_source = NULL;
@@ -144,7 +153,7 @@ static PLpgSQL_function *compile_do_stmt(DoStmt* stmt)
 				 errmsg("no inline code specified")));
 
 	if(strcmp(language, "plpgsql") != 0) {
-		return (PLpgSQL_function *) palloc0(sizeof(PLpgSQL_function));
+		return pg_query_new_skipped_function();
 	}
 	return plpgsql_compile_inline(proc_source);
 
@@ -423,7 +432,7 @@ compile_create_function_stmt_via_callback(CreateFunctionStmt *stmt)
 	}
 
 	if (strcmp(language, "plpgsql") != 0)
-		return (PLpgSQL_function *) palloc0(sizeof(PLpgSQL_function));
+		return pg_query_new_skipped_function();
 
 	/* Mirrors the checks in upstream interpret_AS_clause */
 	if (stmt->sql_body == NULL && proc_source == NULL)
