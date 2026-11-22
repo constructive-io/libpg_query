@@ -640,6 +640,10 @@ dump_function(StringInfo out, PLpgSQL_function *node)
 	WRITE_INT_FIELD(new_varno, new_varno, new_varno);
 	WRITE_INT_FIELD(old_varno, old_varno, old_varno);
 
+	/* -1 means no OUT parameter; 0 is a valid datum index. */
+	if (node->out_param_varno >= 0)
+		appendStringInfo(out, "\"out_param_varno\":%d,", node->out_param_varno);
+
 	appendStringInfoString(out, "\"datums\":");
 	appendStringInfoChar(out, '[');
 	for (i = 0; i < node->ndatums; i++)
