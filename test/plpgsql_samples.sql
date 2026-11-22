@@ -729,3 +729,14 @@ BEGIN
     RETURN input_value + "next""value";
 END;
 $$ LANGUAGE plpgsql;
+
+-- Custom-type arrays are plain array variables, so they can share a multi-item INTO list
+CREATE FUNCTION custom_array_multi_into() RETURNS void AS $$
+DECLARE
+    v mytype[];
+    y myschema.mytype[];
+    n integer;
+BEGIN
+    SELECT a, b, c INTO v, y, n FROM t;
+END;
+$$ LANGUAGE plpgsql;
