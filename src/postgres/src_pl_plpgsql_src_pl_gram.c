@@ -2636,13 +2636,6 @@ yyreduce:
     {
 						plpgsql_ns_additem((yyvsp[(4) - (5)].nsitem)->itemtype,
 										   (yyvsp[(4) - (5)].nsitem)->itemno, (yyvsp[(1) - (5)].varname).name);
-						{
-							/* pg_query: record ALIAS declarations for JSON output */
-							extern void pg_query_plpgsql_record_alias(int itemno, const char *name, int lineno);
-							pg_query_plpgsql_record_alias((yyvsp[(4) - (5)].nsitem)->itemno,
-														  (yyvsp[(1) - (5)].varname).name,
-														  (yyvsp[(1) - (5)].varname).lineno);
-						}
 					;}
     break;
 
@@ -5872,15 +5865,6 @@ make_return_stmt(int location, YYSTYPE *yylvalp, YYLTYPE *yyllocp, yyscan_t yysc
 		 */
 		int			tok = yylex(yylvalp, yyllocp, yyscanner);
 
-		/*
-		 * pg_query: accept a bare RETURN regardless of the function's return
-		 * type. The standalone parser resolves unknown return types against a
-		 * mocked catalog, so requiring an expression here would reject source
-		 * text that a real server (with the true catalog state) may accept.
-		 */
-		if (tok == ';')
-			return (PLpgSQL_stmt *) new;
-
 		if (tok == T_DATUM && plpgsql_peek(yyscanner) == ';' &&
 			(yylvalp->wdatum.datum->dtype == PLPGSQL_DTYPE_VAR ||
 			 yylvalp->wdatum.datum->dtype == PLPGSQL_DTYPE_PROMISE ||
@@ -6322,7 +6306,6 @@ parse_datatype(const char *string, int location, yyscan_t yyscanner)
 	TypeName   *typeName;
 	Oid			type_id;
 	int32		typmod;
-	PLpgSQL_type *typ;
 	sql_error_callback_arg cbarg;
 	ErrorContextCallback syntax_errcontext;
 
@@ -6342,25 +6325,9 @@ parse_datatype(const char *string, int location, yyscan_t yyscanner)
 	error_context_stack = syntax_errcontext.previous;
 
 	/* Okay, build a PLpgSQL_type data structure for it */
-	typ = plpgsql_build_datatype(type_id, typmod,
-								 plpgsql_curr_compile->fn_input_collation,
-								 typeName);
-
-	/*
-	 * pg_query: preserve the type name exactly as written in the source
-	 * text (e.g. "varchar(10)", "myschema.mytype[]") so parse trees can be
-	 * deparsed back into equivalent source. Trim trailing whitespace left
-	 * over from the scanner.
-	 */
-	typ->typname = pstrdup(string);
-	{
-		int			len = strlen(typ->typname);
-
-		while (len > 0 && scanner_isspace(typ->typname[len - 1]))
-			typ->typname[--len] = '\0';
-	}
-
-	return typ;
+	return plpgsql_build_datatype(type_id, typmod,
+								  plpgsql_curr_compile->fn_input_collation,
+								  typeName);
 }
 
 /*

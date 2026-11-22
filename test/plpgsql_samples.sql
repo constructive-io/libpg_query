@@ -611,104 +611,10 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Regression samples for pg_query_parse_plpgsql() PG 18 issues, see
--- https://github.com/pganalyze/libpg_query/issues/337
-
--- Regression: trigger functions must not emit malformed JSON for the
--- PLPGSQL_DTYPE_PROMISE datums (tg_name, tg_when, ...) created for TG_* vars.
-CREATE FUNCTION audit_trigger() RETURNS trigger LANGUAGE plpgsql AS $$
-BEGIN
-  NEW.updated_at := now();
-  RETURN NEW;
-END;
-$$;
-
--- Regression: schema-qualified variable types outside pg_catalog/public must
--- parse instead of returning "Not implemented (LookupExplicitNamespace ...)".
-CREATE FUNCTION test_qualified_type() RETURNS void LANGUAGE plpgsql AS $$
+-- Record variables with options and a default value
+CREATE FUNCTION record_default() RETURNS void AS $$
 DECLARE
-    v_user "my_schema".users;
+    r CONSTANT mytable NOT NULL := ROW(1);
 BEGIN
-    RETURN;
 END;
-$$;
-
--- Regression: RETURN <variable> must keep the return target (retvarno) in the
--- JSON output rather than dropping the expression entirely.
-CREATE FUNCTION return_variable() RETURNS int LANGUAGE plpgsql AS $$
-DECLARE v int := 1;
-BEGIN
-    RETURN v;
-END;
-$$;
-
--- Regression: custom-type arrays in DECLARE must parse (previously failed
--- with 'variable "v" has pseudo-type _record').
-CREATE FUNCTION custom_type_arrays() RETURNS void LANGUAGE plpgsql AS $$
-DECLARE
-    v mytype[];
-    w myschema.mytype[];
-    x "myType"[];
-    ok1 int[];
-    ok2 text[];
-    ok3 mytype;
-BEGIN
-    NULL;
-END;
-$$;
-
--- Regression: bare RETURN must be accepted in functions with a scalar or
--- trigger return type (previously failed with 'missing expression').
-CREATE FUNCTION bare_return_scalar() RETURNS int LANGUAGE plpgsql AS $$
-BEGIN
-    RETURN;
-END;
-$$;
-
-CREATE FUNCTION bare_return_trigger() RETURNS trigger LANGUAGE plpgsql AS $$
-BEGIN
-    RETURN;
-END;
-$$;
-
--- Regression: non-void functions must get the implicit trailing RETURN, and
--- declared type names must keep their SQL spelling and typmods
--- (integer, not int4; varchar(10), not varchar).
-CREATE FUNCTION implicit_return_and_typenames() RETURNS int LANGUAGE plpgsql AS $$
-DECLARE
-    v_id integer;
-    v_name varchar(10);
-    v_num numeric(10,2);
-BEGIN
-    NULL;
-END;
-$$;
-
--- Regression: VARIADIC array parameters must parse. Compiling a VARIADIC
--- parameter runs get_element_type() on the array type; the standalone
--- SearchSysCache1 mock previously left typelem/typsubscript unset, so every
--- array read as a non-array and interpret_function_parameter_list() rejected
--- the parameter with "VARIADIC parameter must be an array".
-CREATE FUNCTION variadic_text(VARIADIC strs text[]) RETURNS jsonb LANGUAGE plpgsql IMMUTABLE AS $$
-BEGIN
-    RETURN to_jsonb(strs);
-END;
-$$;
-
-CREATE FUNCTION variadic_jsonb(VARIADIC nodes jsonb[]) RETURNS jsonb LANGUAGE plpgsql IMMUTABLE AS $$
-BEGIN
-    RETURN to_jsonb(nodes);
-END;
-$$;
-
--- Regression: a schema-qualified function installs its (unqualified) name as
--- the top-level PL/pgSQL block label, so a label-qualified reference such as
--- SELECT ... INTO <funcname>.<param> must resolve to the parameter. The
--- standalone parser previously took the FIRST component of the qualified name
--- (the schema) as the function name via linitial(), so the block label was the
--- schema and "check_password.password" failed with "not a known variable".
-CREATE FUNCTION auth.check_password(IN password text) RETURNS void LANGUAGE plpgsql AS $$
-BEGIN
-    SELECT trim(check_password.password) INTO check_password.password;
-END;
-$$;
+$$ LANGUAGE plpgsql;

@@ -140,7 +140,10 @@ static PLpgSQL_function *compile_do_stmt(DoStmt* stmt)
 		}
 	}
 
-	assert(proc_source != NULL);
+	if (proc_source == NULL)
+		ereport(ERROR,
+				(errcode(ERRCODE_SYNTAX_ERROR),
+				 errmsg("no inline code specified")));
 
 	if(strcmp(language, "plpgsql") != 0) {
 		return (PLpgSQL_function *) palloc0(sizeof(PLpgSQL_function));
@@ -293,17 +296,7 @@ pg_query_create_function(CreateFunctionStmt *stmt,
 	Oid			variadicArgType;
 	Oid			requiredResultType;
 
-	/*
-	 * The function name is the last component of the (possibly schema- or
-	 * catalog-qualified) name list; leading components are the namespace.
-	 * Upstream CreateFunction derives it the same way via
-	 * QualifiedNameGetCreationNamespace(). Taking linitial() here would use
-	 * the schema as the function name, which plpgsql_compile then installs as
-	 * the top-level block label — breaking label-qualified variable references
-	 * such as SELECT ... INTO <funcname>.<param> in a schema-qualified
-	 * function.
-	 */
-	funcname = strVal(llast(stmt->funcname));
+	funcname = strVal(linitial(stmt->funcname));
 
 	*is_dml_trigger = false;
 	*is_event_trigger = false;
@@ -431,10 +424,24 @@ compile_create_function_stmt_via_callback(CreateFunctionStmt *stmt)
 		}
 	}
 
-	assert(proc_source != NULL);
-
 	if (strcmp(language, "plpgsql") != 0)
 		return (PLpgSQL_function *) palloc0(sizeof(PLpgSQL_function));
+
+	/* Mirrors the checks in upstream interpret_AS_clause */
+	if (stmt->sql_body == NULL && proc_source == NULL)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
+				 errmsg("no function body specified")));
+
+	if (stmt->sql_body != NULL && proc_source != NULL)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
+				 errmsg("duplicate function body specified")));
+
+	if (stmt->sql_body != NULL)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
+				 errmsg("inline SQL function body only valid for language SQL")));
 
 	wrapper = pg_query_create_function(stmt, language, proc_source,
 									   &is_dml_trigger, &is_event_trigger);
@@ -497,9 +504,6 @@ PgQueryInternalPlpgsqlFuncAndError pg_query_raw_parse_plpgsql(Node* stmt)
 	dup2(stderr_pipe[1], STDERR_FILENO);
 	close(stderr_pipe[1]);
 #endif
-
-	/* Clear aliases recorded from any previous function compile */
-	pg_query_plpgsql_reset_aliases();
 
 	PG_TRY();
 	{
@@ -624,6 +628,7 @@ PgQueryPlpgsqlParseResult pg_query_parse_plpgsql(const char* input)
 
 	if (statements.stmts_count == 0) {
 		result.plpgsql_funcs = strdup("[]");
+		free(parse_result.stderr_buffer);
 		pg_query_exit_memory_context(ctx);
 		return result;
 	}
@@ -639,6 +644,7 @@ PgQueryPlpgsqlParseResult pg_query_parse_plpgsql(const char* input)
 		result.error = func_and_error.error;
 
 		if (result.error != NULL) {
+			free(parse_result.stderr_buffer);
 			pg_query_exit_memory_context(ctx);
 			return result;
 		}

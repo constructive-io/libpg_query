@@ -94,6 +94,7 @@
 static void dump_record(StringInfo out, PLpgSQL_rec *stmt);
 static void dump_row(StringInfo out, PLpgSQL_row *stmt);
 static void dump_var(StringInfo out, PLpgSQL_var *stmt);
+static void dump_promise(StringInfo out, PLpgSQL_var *stmt);
 static void dump_variable(StringInfo out, PLpgSQL_variable *stmt);
 static void dump_record_field(StringInfo out, PLpgSQL_recfield *node);
 static void dump_stmt(StringInfo out, PLpgSQL_stmt *stmt);
@@ -506,9 +507,7 @@ dump_return(StringInfo out, PLpgSQL_stmt_return *node)
 
 	WRITE_INT_FIELD(lineno, lineno, lineno);
 	WRITE_EXPR_FIELD(expr);
-	/* retvarno is -1 when an expression is returned; only emit real datums */
-	if (node->retvarno >= 0)
-		appendStringInfo(out, "\"retvarno\":%d,", node->retvarno);
+	//WRITE_INT_FIELD(retvarno);
 }
 
 static void
@@ -518,9 +517,7 @@ dump_return_next(StringInfo out, PLpgSQL_stmt_return_next *node)
 
 	WRITE_INT_FIELD(lineno, lineno, lineno);
 	WRITE_EXPR_FIELD(expr);
-	/* retvarno is -1 when an expression is returned; only emit real datums */
-	if (node->retvarno >= 0)
-		appendStringInfo(out, "\"retvarno\":%d,", node->retvarno);
+	//WRITE_INT_FIELD(retvarno);
 }
 
 static void
@@ -643,25 +640,6 @@ dump_function(StringInfo out, PLpgSQL_function *node)
 	WRITE_INT_FIELD(new_varno, new_varno, new_varno);
 	WRITE_INT_FIELD(old_varno, old_varno, old_varno);
 
-	/* -1 means no OUT parameter; 0 is a valid varno, so emit whenever set */
-	if (node->out_param_varno >= 0)
-		appendStringInfo(out, "\"out_param_varno\":%d,", node->out_param_varno);
-
-	if (pg_query_plpgsql_alias_count() > 0)
-	{
-		appendStringInfoString(out, "\"aliases\":[");
-		for (i = 0; i < pg_query_plpgsql_alias_count(); i++)
-		{
-			appendStringInfoString(out, "{\"PLpgSQL_alias\":{\"name\":");
-			_outToken(out, pg_query_plpgsql_alias_name(i));
-			appendStringInfo(out, ",\"varno\":%d,\"lineno\":%d}},",
-							 pg_query_plpgsql_alias_varno(i),
-							 pg_query_plpgsql_alias_lineno(i));
-		}
-		removeTrailingDelimiter(out);
-		appendStringInfoString(out, "],");
-	}
-
 	appendStringInfoString(out, "\"datums\":");
 	appendStringInfoChar(out, '[');
 	for (i = 0; i < node->ndatums; i++)
@@ -672,7 +650,6 @@ dump_function(StringInfo out, PLpgSQL_function *node)
 		switch (d->dtype)
 		{
 			case PLPGSQL_DTYPE_VAR:
-			case PLPGSQL_DTYPE_PROMISE:
 				dump_var(out, (PLpgSQL_var *) d);
 				break;
 			case PLPGSQL_DTYPE_ROW:
@@ -683,6 +660,9 @@ dump_function(StringInfo out, PLpgSQL_function *node)
 				break;
 			case PLPGSQL_DTYPE_RECFIELD:
 				dump_record_field(out, (PLpgSQL_recfield *) d);
+				break;
+			case PLPGSQL_DTYPE_PROMISE:
+				dump_promise(out, (PLpgSQL_var *) d);
 				break;
 			default:
 				elog(WARNING, "could not dump unrecognized dtype: %d",
@@ -713,6 +693,18 @@ dump_var(StringInfo out, PLpgSQL_var *node)
 	WRITE_INT_FIELD(cursor_options, cursor_options, cursor_options);
 }
 
+/*
+ * Promise datums (e.g. the TG_* variables of trigger functions) are regular
+ * PLpgSQL_var structs with a different dtype, so output them as such, with
+ * the promise type added.
+ */
+static void
+dump_promise(StringInfo out, PLpgSQL_var *node)
+{
+	dump_var(out, node);
+	WRITE_ENUM_FIELD(promise, promise, promise);
+}
+
 static void
 dump_variable(StringInfo out, PLpgSQL_variable *node)
 {
@@ -723,6 +715,9 @@ dump_variable(StringInfo out, PLpgSQL_variable *node)
 			break;
 		case PLPGSQL_DTYPE_VAR:
 			dump_var(out, (PLpgSQL_var *) node);
+			break;
+		case PLPGSQL_DTYPE_PROMISE:
+			dump_promise(out, (PLpgSQL_var *) node);
 			break;
 		case PLPGSQL_DTYPE_ROW:
 			dump_row(out, (PLpgSQL_row *) node);
@@ -778,7 +773,9 @@ dump_record(StringInfo out, PLpgSQL_rec *node) {
 	WRITE_STRING_FIELD(refname, refname, refname);
 	WRITE_INT_FIELD(dno, dno, dno);
 	WRITE_INT_FIELD(lineno, lineno, lineno);
-	WRITE_OBJ_FIELD(datatype, dump_type);
+	WRITE_BOOL_FIELD(isconst, isconst, isconst);
+	WRITE_BOOL_FIELD(notnull, notnull, notnull);
+	WRITE_EXPR_FIELD(default_val);
 }
 
 static void
@@ -787,72 +784,6 @@ dump_record_field(StringInfo out, PLpgSQL_recfield *node) {
 
 	WRITE_STRING_FIELD(fieldname, fieldname, fieldname);
 	WRITE_INT_FIELD(recparentno, recparentno, recparentno);
-}
-
-/*
- * Alias declarations recorded by the grammar during the most recent
- * function compile (see pg_query_plpgsql_record_alias). ALIAS FOR entries
- * live only in the compiler's namespace, which is popped before the
- * function struct is available for dumping, so they are captured here.
- */
-typedef struct PgQueryPlpgsqlAlias
-{
-	int		varno;
-	char   *name;
-	int		lineno;
-} PgQueryPlpgsqlAlias;
-
-static PgQueryPlpgsqlAlias *plpgsql_aliases = NULL;
-static int plpgsql_naliases = 0;
-static int plpgsql_aliases_size = 0;
-
-void
-pg_query_plpgsql_reset_aliases(void)
-{
-	int i;
-	for (i = 0; i < plpgsql_naliases; i++)
-		free(plpgsql_aliases[i].name);
-	plpgsql_naliases = 0;
-}
-
-void
-pg_query_plpgsql_record_alias(int itemno, const char *name, int lineno)
-{
-	if (name == NULL)
-		return;
-	if (plpgsql_naliases >= plpgsql_aliases_size)
-	{
-		plpgsql_aliases_size = plpgsql_aliases_size == 0 ? 8 : plpgsql_aliases_size * 2;
-		plpgsql_aliases = realloc(plpgsql_aliases, plpgsql_aliases_size * sizeof(PgQueryPlpgsqlAlias));
-	}
-	plpgsql_aliases[plpgsql_naliases].varno = itemno;
-	plpgsql_aliases[plpgsql_naliases].name = strdup(name);
-	plpgsql_aliases[plpgsql_naliases].lineno = lineno;
-	plpgsql_naliases++;
-}
-
-int
-pg_query_plpgsql_alias_count(void)
-{
-	return plpgsql_naliases;
-}
-
-const char *
-pg_query_plpgsql_alias_name(int i)
-{
-	return plpgsql_aliases[i].name;
-}
-
-int
-pg_query_plpgsql_alias_varno(int i)
-{
-	return plpgsql_aliases[i].varno;
-}
-
-int
-pg_query_plpgsql_alias_lineno(int i)
-{
-	return plpgsql_aliases[i].lineno;
 }
 
 char *

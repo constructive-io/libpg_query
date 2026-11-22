@@ -13,6 +13,7 @@ PgQueryInternalParsetreeAndError pg_query_raw_parse(const char* input, int parse
 {
 	PgQueryInternalParsetreeAndError result = {0};
 	MemoryContext parse_context = CurrentMemoryContext;
+	MemoryContext volatile raw_parse_context = NULL;
 
 	char stderr_buffer[STDERR_BUFFER_LEN + 1] = {0};
 #ifndef DEBUG
@@ -43,6 +44,17 @@ PgQueryInternalParsetreeAndError pg_query_raw_parse(const char* input, int parse
 	PG_TRY();
 	{
 		RawParseMode rawParseMode = RAW_PARSE_DEFAULT;
+
+		/*
+		 * Parse in a child context, so that its memory can be released before
+		 * copying the error data in case the parser runs out of memory. On
+		 * success the tree stays there, and is freed with parse_context.
+		 */
+		raw_parse_context = AllocSetContextCreate(parse_context,
+												  "pg_query_raw_parse",
+												  ALLOCSET_DEFAULT_SIZES);
+		MemoryContextSwitchTo(raw_parse_context);
+
 		switch (parser_options & PG_QUERY_PARSE_MODE_BITMASK)
 		{
 			case PG_QUERY_PARSE_TYPE_NAME:
@@ -82,6 +94,8 @@ PgQueryInternalParsetreeAndError pg_query_raw_parse(const char* input, int parse
 #endif
 
 		result.stderr_buffer = strdup(stderr_buffer);
+
+		MemoryContextSwitchTo(parse_context);
 	}
 	PG_CATCH();
 	{
@@ -89,6 +103,8 @@ PgQueryInternalParsetreeAndError pg_query_raw_parse(const char* input, int parse
 		PgQueryError* error;
 
 		MemoryContextSwitchTo(parse_context);
+		if (raw_parse_context != NULL)
+			MemoryContextDelete(raw_parse_context);
 		error_data = CopyErrorData();
 
 		// Note: This is intentionally malloc so exiting the memory context doesn't free this
@@ -135,9 +151,46 @@ PgQueryParseResult pg_query_parse_opts(const char* input, int parser_options)
 	result.stderr_buffer = parsetree_and_error.stderr_buffer;
 	result.error = parsetree_and_error.error;
 
-	tree_json = pg_query_nodes_to_json(parsetree_and_error.tree);
-	result.parse_tree = strdup(tree_json);
-	pfree(tree_json);
+	if (result.error != NULL)
+	{
+		pg_query_exit_memory_context(ctx);
+		return result;
+	}
+
+	/*
+	 * Serialize the tree to JSON. This walks the parse tree recursively and
+	 * may throw (e.g. "stack depth limit exceeded" for deeply nested
+	 * expressions), so it needs its own error handling.
+	 */
+	PG_TRY();
+	{
+		tree_json = pg_query_nodes_to_json(parsetree_and_error.tree);
+		result.parse_tree = strdup(tree_json);
+		pfree(tree_json);
+	}
+	PG_CATCH();
+	{
+		ErrorData* error_data;
+		PgQueryError* error;
+
+		MemoryContextSwitchTo(ctx);
+		// The tree is not needed anymore, free it so there is room to copy the error data
+		MemoryContextReset(ctx);
+		error_data = CopyErrorData();
+
+		// Note: This is intentionally malloc so exiting the memory context doesn't free this
+		error = malloc(sizeof(PgQueryError));
+		error->message   = strdup(error_data->message);
+		error->filename  = strdup(error_data->filename);
+		error->funcname  = strdup(error_data->funcname);
+		error->context   = NULL;
+		error->lineno    = error_data->lineno;
+		error->cursorpos = error_data->cursorpos;
+
+		result.error = error;
+		FlushErrorState();
+	}
+	PG_END_TRY();
 
 	pg_query_exit_memory_context(ctx);
 
@@ -162,7 +215,46 @@ PgQueryProtobufParseResult pg_query_parse_protobuf_opts(const char* input, int p
 	// These are all malloc-ed and will survive exiting the memory context, the caller is responsible to free them now
 	result.stderr_buffer = parsetree_and_error.stderr_buffer;
 	result.error = parsetree_and_error.error;
-	result.parse_tree = pg_query_nodes_to_protobuf(parsetree_and_error.tree);
+
+	if (result.error != NULL)
+	{
+		pg_query_exit_memory_context(ctx);
+		return result;
+	}
+
+	/*
+	 * Serialize the tree to protobuf. This walks the parse tree recursively
+	 * and may throw (e.g. "stack depth limit exceeded" for deeply nested
+	 * expressions, or when the tree is too deep to encode), so it needs its
+	 * own error handling.
+	 */
+	PG_TRY();
+	{
+		result.parse_tree = pg_query_nodes_to_protobuf(parsetree_and_error.tree);
+	}
+	PG_CATCH();
+	{
+		ErrorData* error_data;
+		PgQueryError* error;
+
+		MemoryContextSwitchTo(ctx);
+		// The tree is not needed anymore, free it so there is room to copy the error data
+		MemoryContextReset(ctx);
+		error_data = CopyErrorData();
+
+		// Note: This is intentionally malloc so exiting the memory context doesn't free this
+		error = malloc(sizeof(PgQueryError));
+		error->message   = strdup(error_data->message);
+		error->filename  = strdup(error_data->filename);
+		error->funcname  = strdup(error_data->funcname);
+		error->context   = NULL;
+		error->lineno    = error_data->lineno;
+		error->cursorpos = error_data->cursorpos;
+
+		result.error = error;
+		FlushErrorState();
+	}
+	PG_END_TRY();
 
 	pg_query_exit_memory_context(ctx);
 
