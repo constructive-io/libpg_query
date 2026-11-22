@@ -784,6 +784,7 @@ dump_record(StringInfo out, PLpgSQL_rec *node) {
 	WRITE_BOOL_FIELD(isconst, isconst, isconst);
 	WRITE_BOOL_FIELD(notnull, notnull, notnull);
 	WRITE_EXPR_FIELD(default_val);
+	WRITE_OBJ_FIELD(datatype, dump_type);
 }
 
 static void
