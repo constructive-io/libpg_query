@@ -5,6 +5,11 @@
 #include <string.h>
 #include <stdbool.h>
 
+#if defined(__linux__) || defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__)
+#include <pthread.h>
+#define TEST_SMALL_STACK
+#endif
+
 // Regression test for stack overflows when walking deeply nested parse trees.
 //
 // A deeply nested expression like "SELECT 1%1%1%...%1" parses into a very deep
@@ -158,19 +163,98 @@ static bool run_parse_error_test(const char *prefix, const char *repeated)
 	return ret_code;
 }
 
-int main()
+static bool run_plpgsql_test(bool expect_stack_error)
+{
+	const int depth = 3000;
+	const char prefix[] = "DO $$ BEGIN NULL; END; $$; DO $$ ";
+	const char open[] = "BEGIN ";
+	const char close[] = "END; ";
+	const char stmt[] = "NULL; ";
+	const char suffix[] = "$$;";
+	char *query = malloc(sizeof(prefix) + sizeof(stmt) + sizeof(suffix) +
+		(size_t) depth * (sizeof(open) + sizeof(close) - 2));
+	char *p = query;
+	bool ret_code = 0;
+	PgQueryPlpgsqlParseResult result;
+
+	p += sprintf(p, "%s", prefix);
+	for (int i = 0; i < depth; i++)
+		p += sprintf(p, "%s", open);
+	p += sprintf(p, "%s", stmt);
+	for (int i = 0; i < depth; i++)
+		p += sprintf(p, "%s", close);
+	sprintf(p, "%s", suffix);
+
+	result = pg_query_parse_plpgsql(query);
+	if (!is_clean(result.error) || (expect_stack_error && result.error == NULL) ||
+		(result.error != NULL && result.plpgsql_funcs != NULL)) {
+		ret_code = -1;
+		printf("INVALID PL/pgSQL stack result: %s\n",
+			   result.error ? result.error->message : "(success)");
+	} else {
+		printf(".");
+	}
+	pg_query_free_plpgsql_parse_result(result);
+	free(query);
+
+	// A caught stack error must not poison the next call on this thread.
+	result = pg_query_parse_plpgsql("DO $$ BEGIN NULL; END; $$;");
+	if (result.error != NULL || result.plpgsql_funcs == NULL) {
+		ret_code = -1;
+		printf("INVALID PL/pgSQL parse after stack error\n");
+	} else {
+		printf(".");
+	}
+	pg_query_free_plpgsql_parse_result(result);
+
+	return ret_code;
+}
+
+#ifdef TEST_SMALL_STACK
+static void *run_plpgsql_small_stack(void *arg)
+{
+	*(bool *) arg = run_plpgsql_test(true);
+	return NULL;
+}
+#endif
+
+int main(int argc, char **argv)
 {
 	bool ret_code = 0;
 
-	// Deeply nested expressions go through the generic node dispatchers
-	// (_outNode, _readNode, deparseExpr, ...)
-	ret_code |= run_tests("%1");
+	if (argc != 2 || strcmp(argv[1], "--plpgsql") != 0) {
+		// Deeply nested expressions go through the generic node dispatchers
+		// (_outNode, _readNode, deparseExpr, ...)
+		ret_code |= run_tests("%1");
 
-	// Set operations recurse into the SelectStmt-specific functions directly
-	ret_code |= run_tests(" UNION SELECT 1");
+		// Set operations recurse into the SelectStmt-specific functions directly
+		ret_code |= run_tests(" UNION SELECT 1");
 
-	// Error position reporting in the parser (exprLocation)
-	ret_code |= run_parse_error_test("(SELECT ORDER BY a) ORDER BY x", "+x");
+		// Error position reporting in the parser (exprLocation)
+		ret_code |= run_parse_error_test("(SELECT ORDER BY a) ORDER BY x", "+x");
+	}
+
+	ret_code |= run_plpgsql_test(false);
+
+#ifdef TEST_SMALL_STACK
+	// The serializer overflows this stack without its own depth checks.
+	{
+		pthread_attr_t attr;
+		pthread_t thread;
+		bool thread_result = 0;
+		int err = pthread_attr_init(&attr);
+
+		if (err != 0)
+			return EXIT_FAILURE;
+		err = pthread_attr_setstacksize(&attr, 512 * 1024);
+		if (err == 0)
+			err = pthread_create(&thread, &attr, run_plpgsql_small_stack, &thread_result);
+		pthread_attr_destroy(&attr);
+		if (err != 0 || pthread_join(thread, NULL) != 0)
+			return EXIT_FAILURE;
+		ret_code |= thread_result;
+	}
+#endif
 
 	printf("\n");
 
