@@ -1589,13 +1589,8 @@ build_datatype(HeapTuple typeTup, int32 typmod,
 
 	typ = (PLpgSQL_type *) palloc(sizeof(PLpgSQL_type));
 
-	/*
-	 * pg_query: use the SQL-visible type name (e.g. "integer" rather than
-	 * "int4", including any typmod) so emitted parse trees can be deparsed
-	 * back into valid source text.
-	 */
 	typ->typname = format_type_extended(typeStruct->oid, typmod,
-										FORMAT_TYPE_TYPEMOD_GIVEN);
+									   FORMAT_TYPE_TYPEMOD_GIVEN);
 	typ->typoid = typeStruct->oid;
 	switch (typeStruct->typtype)
 	{

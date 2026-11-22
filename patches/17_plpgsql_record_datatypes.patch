@@ -1,0 +1,43 @@
+Keep the source spelling of PL/pgSQL type names parsed through parse_datatype
+(e.g. %TYPE fallbacks and record arrays) instead of the catalog name.
+
+diff --git a/src/pl/plpgsql/src/pl_gram.y b/src/pl/plpgsql/src/pl_gram.y
+--- a/src/pl/plpgsql/src/pl_gram.y
++++ b/src/pl/plpgsql/src/pl_gram.y
+@@ -3836,6 +3836,7 @@
+ 	TypeName   *typeName;
+ 	Oid			type_id;
+ 	int32		typmod;
++	PLpgSQL_type *typ;
+ 	sql_error_callback_arg cbarg;
+ 	ErrorContextCallback syntax_errcontext;
+ 
+@@ -3855,9 +3856,25 @@
+ 	error_context_stack = syntax_errcontext.previous;
+ 
+ 	/* Okay, build a PLpgSQL_type data structure for it */
+-	return plpgsql_build_datatype(type_id, typmod,
+-								  plpgsql_curr_compile->fn_input_collation,
+-								  typeName);
++	typ = plpgsql_build_datatype(type_id, typmod,
++								 plpgsql_curr_compile->fn_input_collation,
++								 typeName);
++
++	/*
++	 * pg_query: preserve the type name exactly as written in the source
++	 * text (e.g. "varchar(10)", "myschema.mytype[]") so parse trees can be
++	 * deparsed back into equivalent source. Trim trailing whitespace left
++	 * over from the scanner.
++	 */
++	typ->typname = pstrdup(string);
++	{
++		int			len = strlen(typ->typname);
++
++		while (len > 0 && scanner_isspace(typ->typname[len - 1]))
++			typ->typname[--len] = '\0';
++	}
++
++	return typ;
+ }
+ 
+ /*

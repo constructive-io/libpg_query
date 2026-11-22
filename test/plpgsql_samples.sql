@@ -686,6 +686,7 @@ CREATE FUNCTION custom_type_arrays() RETURNS void LANGUAGE plpgsql AS $$
 DECLARE
     v mytype[];
     w public.mytype[];
+    y myschema.mytype[];
     x "myType"[];
     ok1 int[];
     ok2 text[];

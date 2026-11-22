@@ -34,7 +34,7 @@ build_datatype(HeapTuple typeTup, int32 typmod,
 				typ->ttype = PLPGSQL_TTYPE_SCALAR;
 			break;
 		case TYPTYPE_PSEUDO:
-			if (typ->typoid == RECORDOID)
+			if (typ->typoid == RECORDOID || typ->typoid == RECORDARRAYOID)
 				typ->ttype = PLPGSQL_TTYPE_REC;
 			else
 				typ->ttype = PLPGSQL_TTYPE_PSEUDO;
