@@ -307,15 +307,18 @@ pg_query_create_function(CreateFunctionStmt *stmt,
 
 	*is_dml_trigger = false;
 	*is_event_trigger = false;
-	if (stmt->returnType != NULL)
+	/* The trigger pseudo-types live in pg_catalog; other schemas hold ordinary types */
+	if (stmt->returnType != NULL &&
+		(list_length(stmt->returnType->names) == 1 ||
+		 (list_length(stmt->returnType->names) == 2 &&
+		  strcmp(strVal(linitial(stmt->returnType->names)), "pg_catalog") == 0)))
 	{
-		foreach_ptr(String, val, stmt->returnType->names)
-		{
-			if (strcmp(val->sval, "trigger") == 0)
-				*is_dml_trigger = true;
-			else if (strcmp(val->sval, "event_trigger") == 0)
-				*is_event_trigger = true;
-		}
+		char	   *rettypname = strVal(llast(stmt->returnType->names));
+
+		if (strcmp(rettypname, "trigger") == 0)
+			*is_dml_trigger = true;
+		else if (strcmp(rettypname, "event_trigger") == 0)
+			*is_event_trigger = true;
 	}
 
 	interpret_function_parameter_list(palloc0(sizeof(ParseState)),

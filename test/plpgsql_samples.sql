@@ -743,3 +743,22 @@ $$ LANGUAGE plpgsql;
 
 -- Non-PL/pgSQL functions are skipped and carry no OUT parameter
 CREATE FUNCTION skipped_sql_function() RETURNS integer AS $$ SELECT 1 $$ LANGUAGE sql;
+
+-- Only pg_catalog trigger types make a trigger; schemas named trigger hold ordinary types
+CREATE FUNCTION schema_named_trigger(a integer) RETURNS trigger.mytype AS $$
+BEGIN
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE FUNCTION schema_named_event_trigger(a integer) RETURNS event_trigger.mytype AS $$
+BEGIN
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE FUNCTION qualified_trigger_type() RETURNS pg_catalog.trigger AS $$
+BEGIN
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
