@@ -129,12 +129,19 @@ PgQueryScanResult pg_query_scan(const char* input)
     PgQueryScanToken *tokens = scan_tokens(input, &n_tokens);
 
     arena = upb_Arena_New();
+    if (arena == NULL)
+      ereport(ERROR, (errcode(ERRCODE_OUT_OF_MEMORY), errmsg("out of memory")));
     scan_result = pg_query_ScanResult_new(arena);
+    if (scan_result == NULL)
+      ereport(ERROR, (errcode(ERRCODE_OUT_OF_MEMORY), errmsg("out of memory")));
     pg_query_ScanResult_set_version(scan_result, PG_VERSION_NUM);
 
     for (int i = 0; i < n_tokens; i++)
     {
       pg_query_ScanToken *scan_token = pg_query_ScanResult_add_tokens(scan_result, arena);
+
+      if (scan_token == NULL)
+        ereport(ERROR, (errcode(ERRCODE_OUT_OF_MEMORY), errmsg("out of memory")));
 
       pg_query_ScanToken_set_start(scan_token, tokens[i].start);
       pg_query_ScanToken_set_end(scan_token, tokens[i].end);
@@ -150,8 +157,10 @@ PgQueryScanResult pg_query_scan(const char* input)
     if (packed_data == NULL)
       elog(ERROR, "could not serialize scan result to protobuf");
 
-    result.pbuf.len = packed_len;
     result.pbuf.data = malloc(packed_len);
+    if (result.pbuf.data == NULL)
+      ereport(ERROR, (errcode(ERRCODE_OUT_OF_MEMORY), errmsg("out of memory")));
+    result.pbuf.len = packed_len;
     memcpy(result.pbuf.data, packed_data, packed_len);
 
     upb_Arena_Free(arena);
@@ -230,11 +239,13 @@ PgQueryScanTokensResult pg_query_scan_tokens(const char* input)
     int n_tokens;
     PgQueryScanToken *tokens = scan_tokens(input, &n_tokens);
 
-    result.n_tokens = n_tokens;
     if (n_tokens > 0)
     {
       // Note: This is intentionally malloc so exiting the memory context doesn't free this
       result.tokens = malloc(sizeof(PgQueryScanToken) * n_tokens);
+      if (result.tokens == NULL)
+        ereport(ERROR, (errcode(ERRCODE_OUT_OF_MEMORY), errmsg("out of memory")));
+      result.n_tokens = n_tokens;
       memcpy(result.tokens, tokens, sizeof(PgQueryScanToken) * n_tokens);
     }
   }

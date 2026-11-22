@@ -270,6 +270,7 @@ examples/simple_plpgsql: examples/simple_plpgsql.c $(ARLIB)
 	$(CC) $(TEST_CFLAGS) -o $@ -g examples/simple_plpgsql.c $(ARLIB) $(TEST_LDFLAGS)
 
 TESTS = test/complex test/concurrency test/deparse test/deparse_depth test/fingerprint test/fingerprint_opts test/is_utility_stmt test/normalize test/normalize_utility test/parse test/parse_opts test/parse_protobuf test/parse_protobuf_opts test/parse_plpgsql test/scan test/split test/stack_depth test/summary test/summary_truncate
+TESTS += test/scan_oom
 test: $(TESTS)
 ifeq ($(VALGRIND),1)
 	$(VALGRIND_MEMCHECK) test/complex || (cat test/valgrind.log && false)
@@ -289,6 +290,7 @@ endif
 	$(VALGRIND_MEMCHECK) test/parse_protobuf || (cat test/valgrind.log && false)
 	$(VALGRIND_MEMCHECK) test/parse_protobuf_opts || (cat test/valgrind.log && false)
 	$(VALGRIND_MEMCHECK) test/scan || (cat test/valgrind.log && false)
+	$(VALGRIND_MEMCHECK) test/scan_oom || (cat test/valgrind.log && false)
 	$(VALGRIND_MEMCHECK) test/split || (cat test/valgrind.log && false)
 	$(VALGRIND_MEMCHECK) test/stack_depth || (cat test/valgrind.log && false)
 	$(VALGRIND_MEMCHECK) test/summary || (cat test/valgrind.log && false)
@@ -314,6 +316,7 @@ endif
 	test/parse_protobuf
 	test/parse_protobuf_opts
 	test/scan
+	test/scan_oom
 	test/split
 	test/stack_depth
 	test/summary
@@ -379,6 +382,9 @@ test/parse_protobuf_opts: test/parse_protobuf_opts.c test/parse_opts_tests.c $(A
 
 test/scan: test/scan.c test/scan_tests.c $(ARLIB)
 	$(CC) $(TEST_CFLAGS) -o $@ test/scan.c $(ARLIB) $(TEST_LDFLAGS)
+
+test/scan_oom: test/scan_oom.c src/pg_query_scan.c $(ARLIB)
+	$(CC) $(CFLAGS) -o $@ test/scan_oom.c $(ARLIB) $(TEST_LDFLAGS)
 
 test/split: test/split.c test/split_tests.c $(ARLIB)
 	$(CC) $(TEST_CFLAGS) -o $@ test/split.c $(ARLIB) $(TEST_LDFLAGS)
