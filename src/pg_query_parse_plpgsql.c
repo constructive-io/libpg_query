@@ -310,8 +310,9 @@ pg_query_create_function(CreateFunctionStmt *stmt,
 	/* The trigger pseudo-types live in pg_catalog; other schemas hold ordinary types */
 	if (stmt->returnType != NULL &&
 		(list_length(stmt->returnType->names) == 1 ||
-		 (list_length(stmt->returnType->names) == 2 &&
-		  strcmp(strVal(linitial(stmt->returnType->names)), "pg_catalog") == 0)))
+		 strcmp(strVal(list_nth(stmt->returnType->names,
+								list_length(stmt->returnType->names) - 2)),
+				"pg_catalog") == 0))
 	{
 		char	   *rettypname = strVal(llast(stmt->returnType->names));
 

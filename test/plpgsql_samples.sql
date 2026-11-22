@@ -762,3 +762,9 @@ BEGIN
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
+
+CREATE FUNCTION db_qualified_trigger_type() RETURNS mydb.pg_catalog.trigger AS $$
+BEGIN
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
