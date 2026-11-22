@@ -1,0 +1,14 @@
+diff --git a/src/pl/plpgsql/src/pl_gram.y b/src/pl/plpgsql/src/pl_gram.y
+--- a/src/pl/plpgsql/src/pl_gram.y
++++ b/src/pl/plpgsql/src/pl_gram.y
+@@ -549,6 +549,10 @@
+ 					{
+ 						plpgsql_ns_additem($4->itemtype,
+ 										   $4->itemno, $1.name);
++						{
++							extern void pg_query_plpgsql_record_alias(int itemno, const char *name, int lineno);
++							pg_query_plpgsql_record_alias($4->itemno, $1.name, $1.lineno);
++						}
+ 					}
+ 				| decl_varname opt_scrollable K_CURSOR
+ 					{ plpgsql_ns_push($1.name, PLPGSQL_LABEL_OTHER); }

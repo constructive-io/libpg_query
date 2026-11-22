@@ -24,8 +24,6 @@ typedef struct {
 	PgQueryError* error;
 } PgQueryInternalPlpgsqlFuncAndError;
 
-static PgQueryInternalPlpgsqlFuncAndError pg_query_raw_parse_plpgsql(Node* stmt);
-
 /*
  *	 Examine the RETURNS clause of the CREATE FUNCTION statement
  *	 and return information about it as *prorettype_p and *returnsSet_p.
@@ -474,7 +472,8 @@ compile_create_function_stmt_via_callback(CreateFunctionStmt *stmt)
 	return function;
 }
 
-PgQueryInternalPlpgsqlFuncAndError pg_query_raw_parse_plpgsql(Node* stmt)
+static PgQueryInternalPlpgsqlFuncAndError
+pg_query_raw_parse_plpgsql(Node *stmt, PgQueryPlpgsqlAliases *aliases)
 {
 	PgQueryInternalPlpgsqlFuncAndError result = {0};
 	MemoryContext cctx = CurrentMemoryContext;
@@ -505,6 +504,7 @@ PgQueryInternalPlpgsqlFuncAndError pg_query_raw_parse_plpgsql(Node* stmt)
 	close(stderr_pipe[1]);
 #endif
 
+	pg_query_plpgsql_set_aliases(aliases);
 	PG_TRY();
 	{
 		if (IsA(stmt, CreateFunctionStmt)) {
@@ -550,6 +550,7 @@ PgQueryInternalPlpgsqlFuncAndError pg_query_raw_parse_plpgsql(Node* stmt)
 		FlushErrorState();
 	}
 	PG_END_TRY();
+	pg_query_plpgsql_set_aliases(NULL);
 
 #ifndef DEBUG
 	// Restore stderr, close pipe
@@ -637,13 +638,16 @@ PgQueryPlpgsqlParseResult pg_query_parse_plpgsql(const char* input)
 
 	for (i = 0; i < statements.stmts_count; i++) {
 		PgQueryInternalPlpgsqlFuncAndError func_and_error;
+		PgQueryPlpgsqlAliases aliases = {0};
 
-		func_and_error = pg_query_raw_parse_plpgsql(statements.stmts[i]);
+		func_and_error = pg_query_raw_parse_plpgsql(statements.stmts[i], &aliases);
 
 		// These are all malloc-ed and will survive exiting the memory context, the caller is responsible to free them now
 		result.error = func_and_error.error;
 
 		if (result.error != NULL) {
+			if (func_and_error.func != NULL)
+				plpgsql_free_function_memory(func_and_error.func);
 			free(parse_result.stderr_buffer);
 			pg_query_exit_memory_context(ctx);
 			return result;
@@ -654,7 +658,7 @@ PgQueryPlpgsqlParseResult pg_query_parse_plpgsql(const char* input)
 			char *new_out;
 			size_t new_out_len;
 
-			func_json = plpgsqlToJSON(func_and_error.func);
+			func_json = plpgsqlToJSON(func_and_error.func, &aliases);
 			plpgsql_free_function_memory(func_and_error.func);
 
 			new_out_len = strlen(result.plpgsql_funcs) + strlen(func_json) + 3;

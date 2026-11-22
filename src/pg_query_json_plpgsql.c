@@ -131,7 +131,6 @@ static void dump_call(StringInfo out, PLpgSQL_stmt_call *stmt);
 static void dump_commit(StringInfo out, PLpgSQL_stmt_commit *stmt);
 static void dump_rollback(StringInfo out, PLpgSQL_stmt_rollback *stmt);
 static void dump_expr(StringInfo out, PLpgSQL_expr *expr);
-static void dump_function(StringInfo out, PLpgSQL_function *func);
 static void dump_exception(StringInfo out, PLpgSQL_exception *node);
 static void dump_condition(StringInfo out, PLpgSQL_condition *node);
 static void dump_type(StringInfo out, PLpgSQL_type *node);
@@ -635,7 +634,7 @@ dump_expr(StringInfo out, PLpgSQL_expr *node)
 }
 
 static void
-dump_function(StringInfo out, PLpgSQL_function *node)
+dump_function(StringInfo out, PLpgSQL_function *node, const PgQueryPlpgsqlAliases *aliases)
 {
 	int			i;
 	PLpgSQL_datum *d;
@@ -647,6 +646,22 @@ dump_function(StringInfo out, PLpgSQL_function *node)
 	/* -1 means no OUT parameter; 0 is a valid datum index. */
 	if (node->out_param_varno >= 0)
 		appendStringInfo(out, "\"out_param_varno\":%d,", node->out_param_varno);
+
+	if (aliases->count > 0)
+	{
+		appendStringInfoString(out, "\"aliases\":[");
+		for (i = 0; i < aliases->count; i++)
+		{
+			const PgQueryPlpgsqlAlias *alias = &aliases->items[i];
+
+			appendStringInfoString(out, "{\"PLpgSQL_alias\":{\"name\":");
+			_outToken(out, alias->name);
+			appendStringInfo(out, ",\"varno\":%d,\"lineno\":%d}},",
+							 alias->varno, alias->lineno);
+		}
+		removeTrailingDelimiter(out);
+		appendStringInfoString(out, "],");
+	}
 
 	appendStringInfoString(out, "\"datums\":");
 	appendStringInfoChar(out, '[');
@@ -795,8 +810,43 @@ dump_record_field(StringInfo out, PLpgSQL_recfield *node) {
 	WRITE_INT_FIELD(recparentno, recparentno, recparentno);
 }
 
+static __thread PgQueryPlpgsqlAliases *compile_aliases;
+
+void
+pg_query_plpgsql_set_aliases(PgQueryPlpgsqlAliases *aliases)
+{
+	compile_aliases = aliases;
+}
+
+void
+pg_query_plpgsql_record_alias(int itemno, const char *name, int lineno)
+{
+	PgQueryPlpgsqlAliases *aliases = compile_aliases;
+	PgQueryPlpgsqlAlias *alias;
+
+	if (aliases == NULL)
+		return;
+
+	/* The compiler's function memory context owns the alias data. */
+	if (aliases->items == NULL)
+	{
+		aliases->capacity = 8;
+		aliases->items = palloc(aliases->capacity * sizeof(PgQueryPlpgsqlAlias));
+	}
+	else if (aliases->count == aliases->capacity)
+	{
+		aliases->capacity *= 2;
+		aliases->items = repalloc(aliases->items, aliases->capacity * sizeof(PgQueryPlpgsqlAlias));
+	}
+
+	alias = &aliases->items[aliases->count++];
+	alias->varno = itemno;
+	alias->name = pstrdup(name);
+	alias->lineno = lineno;
+}
+
 char *
-plpgsqlToJSON(PLpgSQL_function *func)
+plpgsqlToJSON(PLpgSQL_function *func, const PgQueryPlpgsqlAliases *aliases)
 {
 	StringInfoData str;
 
@@ -804,7 +854,7 @@ plpgsqlToJSON(PLpgSQL_function *func)
 
 	appendStringInfoChar(&str, '{');
 
-	dump_function(&str, func);
+	dump_function(&str, func, aliases);
 
 	removeTrailingDelimiter(&str);
 	appendStringInfoString(&str, "}}");
