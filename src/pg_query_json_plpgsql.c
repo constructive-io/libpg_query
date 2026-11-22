@@ -1,5 +1,6 @@
 #include "pg_query.h"
 #include "pg_query_json_plpgsql.h"
+#include "miscadmin.h"
 
 #include "pg_query_json_helper.c"
 
@@ -138,6 +139,7 @@ static void dump_type(StringInfo out, PLpgSQL_type *node);
 static void
 dump_stmt(StringInfo out, PLpgSQL_stmt *node)
 {
+	check_stack_depth();
 	appendStringInfoChar(out, '{');
 	switch (node->cmd_type)
 	{
