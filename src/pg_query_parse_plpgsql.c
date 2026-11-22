@@ -296,7 +296,7 @@ pg_query_create_function(CreateFunctionStmt *stmt,
 	Oid			variadicArgType;
 	Oid			requiredResultType;
 
-	funcname = strVal(linitial(stmt->funcname));
+	funcname = strVal(llast(stmt->funcname));
 
 	*is_dml_trigger = false;
 	*is_event_trigger = false;

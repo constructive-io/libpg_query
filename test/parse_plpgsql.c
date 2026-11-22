@@ -115,6 +115,22 @@ int main() {
 	if (!expect_no_error("SELECT 1;"))
 		ret_code = EXIT_FAILURE;
 
+	if (!expect_no_error("CREATE FUNCTION check_password(password text) RETURNS void AS $$ BEGIN SELECT trim(check_password.password) INTO check_password.password; END; $$ LANGUAGE plpgsql;"))
+		ret_code = EXIT_FAILURE;
+
+	if (!expect_no_error("CREATE FUNCTION auth.check_password(password text) RETURNS void AS $$ BEGIN SELECT trim(check_password.password) INTO check_password.password; END; $$ LANGUAGE plpgsql;"))
+		ret_code = EXIT_FAILURE;
+
+	if (!expect_no_error("CREATE FUNCTION db.auth.check_password(password text) RETURNS void AS $$ BEGIN SELECT trim(check_password.password) INTO check_password.password; END; $$ LANGUAGE plpgsql;"))
+		ret_code = EXIT_FAILURE;
+
+	if (!expect_no_error("CREATE FUNCTION auth.\"CheckPassword\"(password text) RETURNS void AS $$ BEGIN SELECT password INTO \"CheckPassword\".password; END; $$ LANGUAGE plpgsql;"))
+		ret_code = EXIT_FAILURE;
+
+	if (!expect_error("CREATE FUNCTION auth.check_password(password text) RETURNS void AS $$ BEGIN SELECT password INTO auth.password; END; $$ LANGUAGE plpgsql;",
+				  "\"auth.password\" is not a known variable"))
+		ret_code = EXIT_FAILURE;
+
 	pg_query_exit();
 
 	return ret_code;
