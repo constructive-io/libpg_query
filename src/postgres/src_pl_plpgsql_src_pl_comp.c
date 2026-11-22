@@ -698,10 +698,13 @@ plpgsql_compile_callback(FunctionCallInfo fcinfo,
 	 * control to fall off the end without an explicit RETURN statement. The
 	 * easiest way to implement this is to add a RETURN statement to the end
 	 * of the statement list during parsing.
+	 *
+	 * pg_query: add the dummy RETURN unconditionally (as PostgreSQL did
+	 * before v18), since the standalone parser has no execution phase and
+	 * downstream consumers rely on the implicit RETURN being present for
+	 * every function.
 	 */
-	if (num_out_args > 0 || function->fn_rettype == VOIDOID ||
-		function->fn_retset)
-		add_dummy_return(function);
+	add_dummy_return(function);
 
 	/*
 	 * Complete the function's info
@@ -1586,7 +1589,13 @@ build_datatype(HeapTuple typeTup, int32 typmod,
 
 	typ = (PLpgSQL_type *) palloc(sizeof(PLpgSQL_type));
 
-	typ->typname = pstrdup(NameStr(typeStruct->typname));
+	/*
+	 * pg_query: use the SQL-visible type name (e.g. "integer" rather than
+	 * "int4", including any typmod) so emitted parse trees can be deparsed
+	 * back into valid source text.
+	 */
+	typ->typname = format_type_extended(typeStruct->oid, typmod,
+										FORMAT_TYPE_TYPEMOD_GIVEN);
 	typ->typoid = typeStruct->oid;
 	switch (typeStruct->typtype)
 	{
@@ -1606,7 +1615,7 @@ build_datatype(HeapTuple typeTup, int32 typmod,
 				typ->ttype = PLPGSQL_TTYPE_SCALAR;
 			break;
 		case TYPTYPE_PSEUDO:
-			if (typ->typoid == RECORDOID)
+			if (typ->typoid == RECORDOID || typ->typoid == RECORDARRAYOID)
 				typ->ttype = PLPGSQL_TTYPE_REC;
 			else
 				typ->ttype = PLPGSQL_TTYPE_PSEUDO;
