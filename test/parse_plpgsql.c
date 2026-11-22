@@ -131,6 +131,31 @@ int main() {
 				  "\"auth.password\" is not a known variable"))
 		ret_code = EXIT_FAILURE;
 
+	if (!expect_no_error("CREATE FUNCTION f(VARIADIC r int[]) RETURNS int LANGUAGE plpgsql AS $$ BEGIN RETURN 1; END; $$;"))
+		ret_code = EXIT_FAILURE;
+
+	if (!expect_no_error("CREATE FUNCTION f(VARIADIC r integer[]) RETURNS int LANGUAGE plpgsql AS $$ BEGIN RETURN 1; END; $$;"))
+		ret_code = EXIT_FAILURE;
+
+	if (!expect_no_error("CREATE FUNCTION f(VARIADIC r _int4) RETURNS int LANGUAGE plpgsql AS $$ BEGIN RETURN 1; END; $$;"))
+		ret_code = EXIT_FAILURE;
+
+	if (!expect_no_error("CREATE FUNCTION f(VARIADIC r text[]) RETURNS int LANGUAGE plpgsql AS $$ BEGIN RETURN 1; END; $$;"))
+		ret_code = EXIT_FAILURE;
+
+	if (!expect_no_error("CREATE FUNCTION f(VARIADIC r jsonb[]) RETURNS jsonb LANGUAGE plpgsql AS $$ BEGIN RETURN to_jsonb(r); END; $$;"))
+		ret_code = EXIT_FAILURE;
+
+	if (!expect_no_error("CREATE FUNCTION f(VARIADIC r anyarray) RETURNS int LANGUAGE plpgsql AS $$ BEGIN RETURN 1; END; $$;"))
+		ret_code = EXIT_FAILURE;
+
+	if (!expect_no_error("CREATE FUNCTION f(VARIADIC r text[] DEFAULT ARRAY[]::text[]) RETURNS int LANGUAGE plpgsql AS $$ BEGIN RETURN 1; END; $$;"))
+		ret_code = EXIT_FAILURE;
+
+	if (!expect_error("CREATE FUNCTION f(VARIADIC r int) RETURNS int LANGUAGE plpgsql AS $$ BEGIN RETURN 1; END; $$;",
+				  "VARIADIC parameter must be an array"))
+		ret_code = EXIT_FAILURE;
+
 	pg_query_exit();
 
 	return ret_code;

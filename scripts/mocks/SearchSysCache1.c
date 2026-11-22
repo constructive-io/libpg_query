@@ -1,5 +1,6 @@
 #include <catalog/pg_type.h>
 #include <catalog/pg_collation_d.h>
+#include <utils/fmgroids.h>
 #include "pg_query_pg_type.c"
 
 HeapTuple
@@ -35,6 +36,17 @@ SearchSysCache1(int cacheId,
     t->typalign = bt->typalign;
     t->typarray = bt->typarray;
     t->typcollation = bt->typcollation;
+
+    /* Supply the element type and subscript handler for true builtin arrays. */
+    for (size_t i = 0; i < lengthof(pg_query_builtin_types); i++)
+    {
+        if (pg_query_builtin_types[i].typarray == DatumGetObjectId(key1))
+        {
+            t->typelem = pg_query_builtin_types[i].oid;
+            t->typsubscript = F_ARRAY_SUBSCRIPT_HANDLER;
+            break;
+        }
+    }
 
     t->oid = DatumGetObjectId(key1);
     t->typisdefined = true;
