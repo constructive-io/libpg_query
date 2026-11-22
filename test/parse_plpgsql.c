@@ -115,6 +115,28 @@ int main() {
 	if (!expect_no_error("SELECT 1;"))
 		ret_code = EXIT_FAILURE;
 
+	if (!expect_no_error("CREATE FUNCTION bare_scalar() RETURNS int AS $$ BEGIN RETURN; END; $$ LANGUAGE plpgsql;"))
+		ret_code = EXIT_FAILURE;
+
+	if (!expect_no_error("CREATE FUNCTION bare_trigger() RETURNS trigger AS $$ BEGIN RETURN; END; $$ LANGUAGE plpgsql;"))
+		ret_code = EXIT_FAILURE;
+
+	result = pg_query_parse_plpgsql("CREATE FUNCTION implicit_return() RETURNS int AS $$ BEGIN NULL; END; $$ LANGUAGE plpgsql;");
+	if (result.error || !strstr(result.plpgsql_funcs, "\"body\":[{\"PLpgSQL_stmt_return\":{}}]"))
+	{
+		printf("Expected implicit trailing RETURN for scalar function\n");
+		ret_code = EXIT_FAILURE;
+	}
+	pg_query_free_plpgsql_parse_result(result);
+
+	result = pg_query_parse_plpgsql("CREATE FUNCTION empty_body() RETURNS int AS $$ BEGIN END; $$ LANGUAGE plpgsql;");
+	if (result.error || !strstr(result.plpgsql_funcs, "\"body\":[{\"PLpgSQL_stmt_return\":{}}]"))
+	{
+		printf("Expected implicit trailing RETURN for empty scalar function\n");
+		ret_code = EXIT_FAILURE;
+	}
+	pg_query_free_plpgsql_parse_result(result);
+
 	pg_query_exit();
 
 	return ret_code;

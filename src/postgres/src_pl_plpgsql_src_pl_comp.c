@@ -699,9 +699,7 @@ plpgsql_compile_callback(FunctionCallInfo fcinfo,
 	 * easiest way to implement this is to add a RETURN statement to the end
 	 * of the statement list during parsing.
 	 */
-	if (num_out_args > 0 || function->fn_rettype == VOIDOID ||
-		function->fn_retset)
-		add_dummy_return(function);
+	add_dummy_return(function);
 
 	/*
 	 * Complete the function's info

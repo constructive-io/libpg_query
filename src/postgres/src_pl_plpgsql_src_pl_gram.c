@@ -5865,6 +5865,9 @@ make_return_stmt(int location, YYSTYPE *yylvalp, YYLTYPE *yyllocp, yyscan_t yysc
 		 */
 		int			tok = yylex(yylvalp, yyllocp, yyscanner);
 
+		if (tok == ';')
+			return (PLpgSQL_stmt *) new;
+
 		if (tok == T_DATUM && plpgsql_peek(yyscanner) == ';' &&
 			(yylvalp->wdatum.datum->dtype == PLPGSQL_DTYPE_VAR ||
 			 yylvalp->wdatum.datum->dtype == PLPGSQL_DTYPE_PROMISE ||
