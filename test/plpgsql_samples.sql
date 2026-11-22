@@ -618,3 +618,13 @@ DECLARE
 BEGIN
 END;
 $$ LANGUAGE plpgsql;
+
+CREATE FUNCTION alias_order(i integer) RETURNS integer AS $$
+DECLARE
+    input_value ALIAS FOR $1;
+    increment integer := 1;
+    "next""value" ALIAS FOR increment;
+BEGIN
+    RETURN input_value + "next""value";
+END;
+$$ LANGUAGE plpgsql;

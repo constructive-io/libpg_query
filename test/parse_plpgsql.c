@@ -90,6 +90,11 @@ int main() {
 
 	pg_query_free_plpgsql_parse_result(result);
 
+	if (!expect_error("CREATE FUNCTION f(int) RETURNS int LANGUAGE plpgsql AS $$ "
+					  "DECLARE arg ALIAS FOR $1; BEGIN NULL; $$;",
+					  "syntax error at end of input"))
+		ret_code = EXIT_FAILURE;
+
 	if (!expect_error("CREATE FUNCTION f() RETURNS void LANGUAGE plpgsql;",
 				  "no function body specified"))
 		ret_code = EXIT_FAILURE;

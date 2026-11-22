@@ -139,6 +139,7 @@ $(PGDIR):
 	cd $(PGDIR); patch -p1 < $(root_dir)/patches/14_avoid_quadratic_memory_dotted_names.patch
 	cd $(PGDIR); patch -p1 < $(root_dir)/patches/15_node_string_constant_locations.patch
 	cd $(PGDIR); patch -p1 < $(root_dir)/patches/16_notify_payload_param.patch
+	cd $(PGDIR); patch -p1 < $(root_dir)/patches/17_plpgsql_record_alias_declarations.patch
 	cd $(PGDIR); ./configure $(PG_CONFIGURE_FLAGS)
 	cd $(PGDIR); make -C src/pl/plpgsql/src pl_gram.h plerrcodes.h pl_reserved_kwlist_d.h pl_unreserved_kwlist_d.h
 	cd $(PGDIR); make -C src/port pg_config_paths.h
