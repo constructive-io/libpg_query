@@ -5327,8 +5327,10 @@ static PLpgSQL_type *
 read_datatype(int tok, YYSTYPE *yylvalp, YYLTYPE *yyllocp, yyscan_t yyscanner)
 {
 	StringInfoData ds;
-	char	   *type_name;
+	char	   *dtname = NULL;
+	List	   *dtnames = NIL;
 	int			startlocation;
+	int			endlocation;
 	PLpgSQL_type *result = NULL;
 	int			parenlevel = 0;
 
@@ -5339,59 +5341,37 @@ read_datatype(int tok, YYSTYPE *yylvalp, YYLTYPE *yyllocp, yyscan_t yyscanner)
 	if (tok == YYEMPTY)
 		tok = yylex(yylvalp, yyllocp, yyscanner);
 
-	/* The current token is the start of what we'll pass to parse_datatype */
+	/* Capture the datatype through its last token, excluding trailing trivia. */
 	startlocation = *yyllocp;
+	endlocation = startlocation;
 
 	/*
 	 * If we have a simple or composite identifier, check for %TYPE and
 	 * %ROWTYPE constructs.
 	 */
 	if (tok == T_WORD)
-	{
-		char	   *dtname = yylvalp->word.ident;
-
-		tok = yylex(yylvalp, yyllocp, yyscanner);
-		if (tok == '%')
-		{
-			tok = yylex(yylvalp, yyllocp, yyscanner);
-			if (tok_is_keyword(tok, yylvalp,
-							   K_TYPE, "type"))
-				result = plpgsql_parse_wordtype(dtname);
-			else if (tok_is_keyword(tok, yylvalp,
-									K_ROWTYPE, "rowtype"))
-				result = plpgsql_parse_wordrowtype(dtname);
-		}
-	}
+		dtname = yylvalp->word.ident;
 	else if (plpgsql_token_is_unreserved_keyword(tok))
-	{
-		char	   *dtname = pstrdup(yylvalp->keyword);
-
-		tok = yylex(yylvalp, yyllocp, yyscanner);
-		if (tok == '%')
-		{
-			tok = yylex(yylvalp, yyllocp, yyscanner);
-			if (tok_is_keyword(tok, yylvalp,
-							   K_TYPE, "type"))
-				result = plpgsql_parse_wordtype(dtname);
-			else if (tok_is_keyword(tok, yylvalp,
-									K_ROWTYPE, "rowtype"))
-				result = plpgsql_parse_wordrowtype(dtname);
-		}
-	}
+		dtname = pstrdup(yylvalp->keyword);
 	else if (tok == T_CWORD)
-	{
-		List	   *dtnames = yylvalp->cword.idents;
+		dtnames = yylvalp->cword.idents;
 
+	if (dtname != NULL || dtnames != NIL)
+	{
+		endlocation = *yyllocp + plpgsql_token_length(yyscanner);
 		tok = yylex(yylvalp, yyllocp, yyscanner);
 		if (tok == '%')
 		{
+			endlocation = *yyllocp + plpgsql_token_length(yyscanner);
 			tok = yylex(yylvalp, yyllocp, yyscanner);
 			if (tok_is_keyword(tok, yylvalp,
 							   K_TYPE, "type"))
-				result = plpgsql_parse_cwordtype(dtnames);
+				result = dtnames != NIL ? plpgsql_parse_cwordtype(dtnames)
+					: plpgsql_parse_wordtype(dtname);
 			else if (tok_is_keyword(tok, yylvalp,
 									K_ROWTYPE, "rowtype"))
-				result = plpgsql_parse_cwordrowtype(dtnames);
+				result = dtnames != NIL ? plpgsql_parse_cwordrowtype(dtnames)
+					: plpgsql_parse_wordrowtype(dtname);
 		}
 	}
 
@@ -5407,11 +5387,13 @@ read_datatype(int tok, YYSTYPE *yylvalp, YYLTYPE *yyllocp, yyscan_t yyscanner)
 	{
 		bool		is_array = false;
 
+		endlocation = *yyllocp + plpgsql_token_length(yyscanner);
 		tok = yylex(yylvalp, yyllocp, yyscanner);
 		if (tok_is_keyword(tok, yylvalp,
 						   K_ARRAY, "array"))
 		{
 			is_array = true;
+			endlocation = *yyllocp + plpgsql_token_length(yyscanner);
 			tok = yylex(yylvalp, yyllocp, yyscanner);
 		}
 		while (tok == '[')
@@ -5422,14 +5404,13 @@ read_datatype(int tok, YYSTYPE *yylvalp, YYLTYPE *yyllocp, yyscan_t yyscanner)
 				tok = yylex(yylvalp, yyllocp, yyscanner);
 			if (tok != ']')
 				yyerror(yyllocp, NULL, yyscanner, "syntax error, expected \"]\"");
+			endlocation = *yyllocp + plpgsql_token_length(yyscanner);
 			tok = yylex(yylvalp, yyllocp, yyscanner);
 		}
-		plpgsql_push_back_token(tok, yylvalp, yyllocp, yyscanner);
 
-		if (is_array)
+		/* Standalone catalog references may not have a resolved type OID. */
+		if (is_array && OidIsValid(result->typoid))
 			result = plpgsql_build_datatype_arrayof(result);
-
-		return result;
 	}
 
 	/*
@@ -5438,7 +5419,7 @@ read_datatype(int tok, YYSTYPE *yylvalp, YYLTYPE *yyllocp, yyscan_t yyscanner)
 	 * here, instead relying on parse_datatype to complain about garbage.  But
 	 * we must count parens to handle typmods within cursor_arg correctly.
 	 */
-	while (tok != ';')
+	while (!result && tok != ';')
 	{
 		if (tok == 0)
 		{
@@ -5459,20 +5440,21 @@ read_datatype(int tok, YYSTYPE *yylvalp, YYLTYPE *yyllocp, yyscan_t yyscanner)
 		else if (tok == ')')
 			parenlevel--;
 
+		endlocation = *yyllocp + plpgsql_token_length(yyscanner);
 		tok = yylex(yylvalp, yyllocp, yyscanner);
 	}
 
-	/* set up ds to contain complete typename text */
 	initStringInfo(&ds);
-	plpgsql_append_source_text(&ds, startlocation, *yyllocp, yyscanner);
-	type_name = ds.data;
+	plpgsql_append_source_text(&ds, startlocation, endlocation, yyscanner);
 
-	if (type_name[0] == '\0')
+	if (ds.len == 0)
 		yyerror(yyllocp, NULL, yyscanner, "missing data type declaration");
 
-	result = parse_datatype(type_name, startlocation, yyscanner);
+	if (!result)
+		result = parse_datatype(ds.data, startlocation, yyscanner);
 
-	pfree(ds.data);
+	pfree(result->typname);
+	result->typname = ds.data;
 
 	plpgsql_push_back_token(tok, yylvalp, yyllocp, yyscanner);
 
@@ -6728,4 +6710,3 @@ make_case(int location, PLpgSQL_expr *t_expr,
 
 	return (PLpgSQL_stmt *) new;
 }
-
