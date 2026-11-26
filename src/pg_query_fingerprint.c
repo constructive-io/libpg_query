@@ -397,22 +397,6 @@ _fingerprintRangeVar(FingerprintContext *ctx, const RangeVar *node, const void *
 	}
 }
 
-typedef void (*FingerprintFunc) (FingerprintContext *ctx, const void *node, const void *parent, const char *field_name, unsigned int depth);
-
-/*
- * Calls the fingerprint function of a node type on behalf of _fingerprintNode.
- *
- * _fingerprintNode is the only caller of each of these functions, so without
- * this indirection WebAssembly toolchains merge all of them into it. Older
- * versions of V8 (Node.js 20) then give that one function a native stack
- * frame of about 30kB, and run out of stack at about 30 levels of nesting.
- */
-static pg_noinline void
-_fingerprintCall(FingerprintFunc func, FingerprintContext *ctx, const void *node, const void *parent, const char *field_name, unsigned int depth)
-{
-	func(ctx, node, parent, field_name, depth);
-}
-
 void
 _fingerprintNode(FingerprintContext *ctx, const void *obj, const void *parent, char *field_name, unsigned int depth)
 {

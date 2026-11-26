@@ -398,7 +398,7 @@ class Generator
       else
         conds += format("  if (!IsA(castNode(TypeCast, (void*) obj)->arg, A_Const) && !IsA(castNode(TypeCast, (void*) obj)->arg, ParamRef))\n  {\n") if type == 'TypeCast'
         conds += format("  _fingerprintString(ctx, \"%s\");\n", type)
-        conds += format("  _fingerprintCall((FingerprintFunc) _fingerprint%s, ctx, obj, parent, field_name, depth);\n", type)
+        conds += format("  _fingerprint%s(ctx, obj, parent, field_name, depth);\n", type)
         conds += "  }\n" if type == 'TypeCast'
       end
       conds += "  break;\n"
