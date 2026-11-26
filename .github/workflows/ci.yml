@@ -97,6 +97,8 @@ jobs:
         emcc -O3 -sENVIRONMENT=node -sSTACK_SIZE=33554432 -sINITIAL_MEMORY=41943040 \
           -sALLOW_MEMORY_GROWTH=1 -I. test/wasm_depth.c libpg_query.a -o test/wasm_depth.js
         node test/wasm_depth.js
+        # V8's optimizing compiler only, which is what a long-running process ends up on
+        node --no-liftoff test/wasm_depth.js fingerprint
         emcc -O3 -sENVIRONMENT=node -sSTACK_SIZE=1048576 -sINITIAL_MEMORY=41943040 \
           -sALLOW_MEMORY_GROWTH=1 -I. test/wasm_depth.c libpg_query.a -o test/wasm_depth_small.js
         node test/wasm_depth_small.js overflow
