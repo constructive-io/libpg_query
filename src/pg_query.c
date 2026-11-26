@@ -36,9 +36,10 @@
 #if defined(__EMSCRIPTEN__)
 /*
  * WebAssembly code also runs on the host engine's native stack (about 1MB in
- * Node and browsers), which overflows before 2MB of WebAssembly stack is used.
+ * Node and browsers), where its frames are larger than on the WebAssembly
+ * stack, so a larger limit overflows the native stack before it is reached.
  */
-#define PG_QUERY_MAX_STACK_DEPTH_KB 1024
+#define PG_QUERY_MAX_STACK_DEPTH_KB 512
 #else
 #define PG_QUERY_MAX_STACK_DEPTH_KB 2048
 #endif
@@ -271,7 +272,7 @@ static void set_max_stack_depth(void)
 	if (new_limit <= 100)
 		return;
 
-	/* Clamp at 2MB (1MB in WebAssembly), like Postgres auto-detection logic. */
+	/* Clamp at 2MB (512kB in WebAssembly), like Postgres auto-detection logic. */
 	if (new_limit > PG_QUERY_MAX_STACK_DEPTH_KB)
 		new_limit = PG_QUERY_MAX_STACK_DEPTH_KB;
 
