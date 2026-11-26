@@ -21,12 +21,27 @@
 #include <pthread_np.h>
 #endif
 
+#if defined(__EMSCRIPTEN__)
+/* For emscripten_stack_get_end() */
+#include <emscripten/stack.h>
+#endif
+
 #if defined(_WIN32)
 /* For GetCurrentThreadStackLimits(); port/win32.h already sets _WIN32_WINNT. */
 #include <windows.h>
 #endif
 
 #include <signal.h>
+
+#if defined(__EMSCRIPTEN__)
+/*
+ * WebAssembly code also runs on the host engine's native stack (about 1MB in
+ * Node and browsers), which overflows before 2MB of WebAssembly stack is used.
+ */
+#define PG_QUERY_MAX_STACK_DEPTH_KB 1024
+#else
+#define PG_QUERY_MAX_STACK_DEPTH_KB 2048
+#endif
 
 const char* progname = "pg_query";
 
@@ -169,6 +184,9 @@ static char *get_lowest_stackaddr(void)
 
 		pg_query_lowest_stackaddr = (char *) low;
 	}
+#elif defined(__EMSCRIPTEN__)
+	/* WebAssembly's stack is a region in linear memory that grows down */
+	pg_query_lowest_stackaddr = (char *) emscripten_stack_get_end();
 #elif defined(HAVE_PTHREAD) && defined(__linux__)
 	{
 		pthread_attr_t attr;
@@ -253,9 +271,9 @@ static void set_max_stack_depth(void)
 	if (new_limit <= 100)
 		return;
 
-	/* Clamp at 2MB, like Postgres auto-detection logic. */
-	if (new_limit > 2048)
-		new_limit = 2048;
+	/* Clamp at 2MB (1MB in WebAssembly), like Postgres auto-detection logic. */
+	if (new_limit > PG_QUERY_MAX_STACK_DEPTH_KB)
+		new_limit = PG_QUERY_MAX_STACK_DEPTH_KB;
 
 	max_stack_depth = (int) new_limit;
 	assign_max_stack_depth((int) new_limit, NULL);
