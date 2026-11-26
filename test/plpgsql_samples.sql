@@ -618,3 +618,16 @@ DECLARE
 BEGIN
 END;
 $$ LANGUAGE plpgsql;
+
+-- Implicit function-block label uses the unqualified function name
+CREATE FUNCTION check_password(password text) RETURNS void AS $$
+BEGIN
+    SELECT trim(check_password.password) INTO check_password.password;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE FUNCTION auth.check_password(password text) RETURNS void AS $$
+BEGIN
+    SELECT trim(check_password.password) INTO check_password.password;
+END;
+$$ LANGUAGE plpgsql;
