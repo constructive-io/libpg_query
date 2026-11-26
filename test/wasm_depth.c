@@ -64,12 +64,45 @@ static bool check_plpgsql_depth(void)
 	return ok;
 }
 
+static bool check_normalize_depth(int terms)
+{
+	char *query = nested_query("SELECT 1", "+1", "", "", "", terms - 1);
+	PgQueryNormalizeResult result = pg_query_normalize(query);
+	const char *normalized = result.normalized_query;
+	const char prefix[] = "SELECT ";
+	bool ok = result.error == NULL && normalized != NULL &&
+		strncmp(normalized, prefix, sizeof(prefix) - 1) == 0;
+
+	if (ok)
+	{
+		normalized += sizeof(prefix) - 1;
+		for (int i = 1; i <= terms && ok; i++)
+		{
+			char param[32];
+			int len = snprintf(param, sizeof(param), "%s$%d", i == 1 ? "" : "+", i);
+			ok = strncmp(normalized, param, len) == 0;
+			if (ok)
+				normalized += len;
+		}
+		ok = ok && *normalized == '\0';
+	}
+
+	fprintf(ok ? stdout : stderr, "%s normalize %d chained terms: %s\n",
+			ok ? "PASS" : "FAIL", terms, ok ? "all parameters normalized" :
+			result.error ? result.error->message : "unexpected normalized query");
+	pg_query_free_normalize_result(result);
+	free(query);
+	return ok;
+}
+
 int main(int argc, char **argv)
 {
 	/* Run with a 1 MiB linked stack for overflow, 32 MiB otherwise. */
 	bool ok;
 	if (argc > 1 && strcmp(argv[1], "overflow") == 0)
 		ok = check_sql_depth(100000, true);
+	else if (argc > 1 && strcmp(argv[1], "normalize") == 0)
+		ok = check_normalize_depth(3000);
 	else
 	{
 		ok = check_sql_depth(2000, false);

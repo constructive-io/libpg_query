@@ -158,6 +158,28 @@ static bool run_parse_error_test(const char *prefix, const char *repeated)
 	return ret_code;
 }
 
+static bool run_normalize_error_test(void)
+{
+	// A depth error under a WindowDef must escape the fallback walker.
+	char *query = build_deep_query("SELECT 1 WINDOW w AS (ORDER BY 1", "+1", 100000);
+	size_t len = strlen(query);
+	query = realloc(query, len + 2);
+	strcpy(query + len, ")");
+
+	PgQueryNormalizeResult result = pg_query_normalize(query);
+	bool ok = result.error && is_clean(result.error) && result.normalized_query == NULL;
+
+	if (ok)
+		printf(".");
+	else
+		printf("INVALID normalize result for window clause, expected clean error, got: %s\n",
+			   result.error ? result.error->message : "(success)");
+
+	pg_query_free_normalize_result(result);
+	free(query);
+	return !ok;
+}
+
 int main()
 {
 	bool ret_code = 0;
@@ -171,6 +193,7 @@ int main()
 
 	// Error position reporting in the parser (exprLocation)
 	ret_code |= run_parse_error_test("(SELECT ORDER BY a) ORDER BY x", "+x");
+	ret_code |= run_normalize_error_test();
 
 	printf("\n");
 
