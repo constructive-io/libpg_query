@@ -76,6 +76,27 @@ jobs:
       run: make $FLAGS
       env:
         FLAGS: ${{ format('{0} {1} {2}', steps.make_flags.outputs.proto_flags, steps.make_flags.outputs.compiler_flags, steps.make_flags.outputs.debug_flags) }}
+  build_wasm:
+    runs-on: ubuntu-24.04
+    steps:
+    - name: Check out code
+      uses: actions/checkout@v4
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20.x'
+    - name: Install Emscripten
+      run: |
+        git clone --branch 6.0.3 --depth 1 https://github.com/emscripten-core/emsdk.git "$RUNNER_TEMP/emsdk"
+        "$RUNNER_TEMP/emsdk/emsdk" install 6.0.3
+        "$RUNNER_TEMP/emsdk/emsdk" activate 6.0.3
+    - name: Build and run WASM depth tests
+      run: |
+        source "$RUNNER_TEMP/emsdk/emsdk_env.sh"
+        emmake make -j"$(nproc)" build
+        emcc -O3 -sENVIRONMENT=node -sSTACK_SIZE=33554432 -sINITIAL_MEMORY=41943040 \
+          -sALLOW_MEMORY_GROWTH=1 -I. test/wasm_depth.c libpg_query.a -o test/wasm_depth.js
+        node test/wasm_depth.js
   build_macos:
     runs-on: macos-latest
     steps:
