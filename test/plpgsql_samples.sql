@@ -662,3 +662,18 @@ BEGIN
     NULL;
 END;
 $$ LANGUAGE plpgsql;
+
+-- Unknown custom-type arrays resolve to RECORDARRAYOID and should be scalar array variables
+CREATE FUNCTION custom_type_arrays() RETURNS void AS $$
+DECLARE
+    v mytype[];
+    w public.mytype[];
+    x "myType"[];
+    ok1 int[];
+    ok2 text[];
+    ok3 mytype;
+    n integer;
+BEGIN
+    SELECT a, b, c INTO v, w, n FROM t;
+END;
+$$ LANGUAGE plpgsql;
