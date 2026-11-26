@@ -618,3 +618,14 @@ DECLARE
 BEGIN
 END;
 $$ LANGUAGE plpgsql;
+
+CREATE FUNCTION qualified_schema_types() RETURNS void AS $$
+DECLARE
+    custom_value myschema.mytype;
+    custom_row myschema.mytable%ROWTYPE;
+    custom_column myschema.mytable.mycolumn%TYPE;
+    catalog_value pg_catalog.int4;
+    public_value public.mytype;
+BEGIN
+END;
+$$ LANGUAGE plpgsql;
