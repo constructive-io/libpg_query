@@ -128,9 +128,51 @@ static bool check_normalize_depth(const char *name, int depth)
  * (32MB). With "overflow", run with a 1MB stack, small enough that the stack
  * depth check fires before the host engine's native stack runs out.
  */
+/* Fingerprints "SELECT " + open * depth + "1" + ")" * depth */
+static bool check_fingerprint_depth(const char *name, const char *open, int depth)
+{
+	const char prefix[] = "SELECT ";
+	size_t open_len = strlen(open);
+	char *query = malloc(sizeof(prefix) + depth * (open_len + 1) + 1);
+	if (query == NULL)
+	{
+		fprintf(stderr, "FAIL %s: could not allocate query\n", name);
+		return false;
+	}
+
+	char *p = query;
+	memcpy(p, prefix, sizeof(prefix) - 1);
+	p += sizeof(prefix) - 1;
+	for (int i = 0; i < depth; i++, p += open_len)
+		memcpy(p, open, open_len);
+	*p++ = '1';
+	memset(p, ')', depth);
+	p[depth] = '\0';
+
+	PgQueryFingerprintResult result = pg_query_fingerprint(query);
+	bool ok = result.error == NULL && result.fingerprint_str != NULL;
+	if (ok)
+		printf("PASS %s: fingerprint %s\n", name, result.fingerprint_str);
+	else
+		fprintf(stderr, "FAIL %s: expected a fingerprint, got %s\n", name,
+				result.error ? result.error->message : "none");
+
+	pg_query_free_fingerprint_result(result);
+	free(query);
+	return ok;
+}
+
 int main(int argc, char **argv)
 {
 	int status = EXIT_SUCCESS;
+	if (argc > 1 && strcmp(argv[1], "fingerprint") == 0)
+	{
+		if (!check_fingerprint_depth("fingerprint 1000 nested subqueries", "(SELECT ", 1000))
+			status = EXIT_FAILURE;
+		if (!check_fingerprint_depth("fingerprint 2000 nested function calls", "f(", 2000))
+			status = EXIT_FAILURE;
+		return status;
+	}
 	if (argc > 1 && strcmp(argv[1], "overflow") == 0)
 	{
 		if (!check_depth("100000 chained terms", "1+", 99999, false, true))
