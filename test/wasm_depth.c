@@ -49,16 +49,67 @@ static bool check_depth(const char *name, const char *open, int depth,
 	return ok;
 }
 
-int main(void)
+/* depth nested PL/pgSQL blocks, e.g. "IF true THEN " ... "NULL;" ... " END IF;" */
+static bool check_plpgsql_depth(const char *name, const char *open, const char *body,
+								const char *close, int depth)
+{
+	const char prefix[] = "CREATE FUNCTION f() RETURNS void LANGUAGE plpgsql AS $$ BEGIN ";
+	const char suffix[] = " END $$";
+	size_t open_len = strlen(open), body_len = strlen(body), close_len = strlen(close);
+	char *query = malloc(sizeof(prefix) + depth * (open_len + close_len) + body_len + sizeof(suffix));
+	if (query == NULL)
+	{
+		fprintf(stderr, "FAIL %s: could not allocate query\n", name);
+		return false;
+	}
+
+	char *p = query;
+	memcpy(p, prefix, sizeof(prefix) - 1);
+	p += sizeof(prefix) - 1;
+	for (int i = 0; i < depth; i++, p += open_len)
+		memcpy(p, open, open_len);
+	memcpy(p, body, body_len);
+	p += body_len;
+	for (int i = 0; i < depth; i++, p += close_len)
+		memcpy(p, close, close_len);
+	memcpy(p, suffix, sizeof(suffix));
+
+	PgQueryPlpgsqlParseResult result = pg_query_parse_plpgsql(query);
+	bool ok = result.error == NULL && result.plpgsql_funcs != NULL;
+	if (ok)
+		printf("PASS %s: parsed successfully\n", name);
+	else
+		fprintf(stderr, "FAIL %s: expected a parse tree, got %s\n", name,
+				result.error ? result.error->message : "no parse tree");
+
+	pg_query_free_plpgsql_parse_result(result);
+	free(query);
+	return ok;
+}
+
+/*
+ * Without arguments, run with the WebAssembly stack libpg-query-node links
+ * (32MB). With "overflow", run with a 1MB stack, small enough that the stack
+ * depth check fires before the host engine's native stack runs out.
+ */
+int main(int argc, char **argv)
 {
 	int status = EXIT_SUCCESS;
+	if (argc > 1 && strcmp(argv[1], "overflow") == 0)
+	{
+		if (!check_depth("100000 chained terms", "1+", 99999, false, true))
+			status = EXIT_FAILURE;
+		return status;
+	}
 	if (!check_depth("2000 chained terms", "1+", 1999, false, false))
 		status = EXIT_FAILURE;
 	if (!check_depth("1000 nested subqueries", "(SELECT ", 1000, true, false))
 		status = EXIT_FAILURE;
 	if (!check_depth("2000 nested function calls", "f(", 2000, true, false))
 		status = EXIT_FAILURE;
-	if (!check_depth("100000 chained terms", "1+", 99999, false, true))
+	if (!check_plpgsql_depth("1000 nested IF blocks", "IF true THEN ", "NULL;", " END IF;", 1000))
+		status = EXIT_FAILURE;
+	if (!check_plpgsql_depth("3000 nested BEGIN blocks", "BEGIN ", "NULL;", " END;", 3000))
 		status = EXIT_FAILURE;
 	return status;
 }

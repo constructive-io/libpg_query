@@ -33,17 +33,6 @@
 
 #include <signal.h>
 
-#if defined(__EMSCRIPTEN__)
-/*
- * WebAssembly code also runs on the host engine's native stack (about 1MB in
- * Node and browsers), where its frames are larger than on the WebAssembly
- * stack, so a larger limit overflows the native stack before it is reached.
- */
-#define PG_QUERY_MAX_STACK_DEPTH_KB 512
-#else
-#define PG_QUERY_MAX_STACK_DEPTH_KB 2048
-#endif
-
 const char* progname = "pg_query";
 
 __thread sig_atomic_t pg_query_initialized = 0;
@@ -272,9 +261,15 @@ static void set_max_stack_depth(void)
 	if (new_limit <= 100)
 		return;
 
-	/* Clamp at 2MB (512kB in WebAssembly), like Postgres auto-detection logic. */
-	if (new_limit > PG_QUERY_MAX_STACK_DEPTH_KB)
-		new_limit = PG_QUERY_MAX_STACK_DEPTH_KB;
+#if !defined(__EMSCRIPTEN__)
+	/*
+	 * Clamp at 2MB, like Postgres auto-detection logic. WebAssembly uses its
+	 * whole stack, whose size is set when linking: the host engine's native
+	 * stack usually runs out first there, which the embedder has to handle.
+	 */
+	if (new_limit > 2048)
+		new_limit = 2048;
+#endif
 
 	max_stack_depth = (int) new_limit;
 	assign_max_stack_depth((int) new_limit, NULL);

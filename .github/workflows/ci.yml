@@ -97,6 +97,9 @@ jobs:
         emcc -O3 -sENVIRONMENT=node -sSTACK_SIZE=33554432 -sINITIAL_MEMORY=41943040 \
           -sALLOW_MEMORY_GROWTH=1 -I. test/wasm_depth.c libpg_query.a -o test/wasm_depth.js
         node test/wasm_depth.js
+        emcc -O3 -sENVIRONMENT=node -sSTACK_SIZE=1048576 -sINITIAL_MEMORY=41943040 \
+          -sALLOW_MEMORY_GROWTH=1 -I. test/wasm_depth.c libpg_query.a -o test/wasm_depth_small.js
+        node test/wasm_depth_small.js overflow
   build_macos:
     runs-on: macos-latest
     steps:
