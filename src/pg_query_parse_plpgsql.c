@@ -298,19 +298,6 @@ pg_query_create_function(CreateFunctionStmt *stmt,
 
 	funcname = strVal(llast(stmt->funcname));
 
-	*is_dml_trigger = false;
-	*is_event_trigger = false;
-	if (stmt->returnType != NULL)
-	{
-		foreach_ptr(String, val, stmt->returnType->names)
-		{
-			if (strcmp(val->sval, "trigger") == 0)
-				*is_dml_trigger = true;
-			else if (strcmp(val->sval, "event_trigger") == 0)
-				*is_event_trigger = true;
-		}
-	}
-
 	interpret_function_parameter_list(palloc0(sizeof(ParseState)),
 									  stmt->parameters,
 									  InvalidOid,
@@ -352,6 +339,11 @@ pg_query_create_function(CreateFunctionStmt *stmt,
 				(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
 				 errmsg("function result type must be specified")));
 	}
+
+	*is_dml_trigger = (!stmt->is_procedure && !returnsSet &&
+					   prorettype == TRIGGEROID);
+	*is_event_trigger = (!stmt->is_procedure && !returnsSet &&
+						 prorettype == EVENT_TRIGGEROID);
 
 	prokind = stmt->is_procedure ? PROKIND_PROCEDURE : PROKIND_FUNCTION;
 

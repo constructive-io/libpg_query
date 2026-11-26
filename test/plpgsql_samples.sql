@@ -631,3 +631,34 @@ BEGIN
     SELECT trim(check_password.password) INTO check_password.password;
 END;
 $$ LANGUAGE plpgsql;
+
+-- Only pg_catalog trigger pseudo-types make a trigger; non-catalog schemas hold ordinary types
+CREATE FUNCTION public_trigger_type(a integer) RETURNS public.trigger AS $$
+BEGIN
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE FUNCTION public_event_trigger_type(a integer) RETURNS public.event_trigger AS $$
+BEGIN
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE FUNCTION qualified_trigger_type() RETURNS pg_catalog.trigger AS $$
+BEGIN
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE FUNCTION db_qualified_trigger_type() RETURNS mydb.pg_catalog.trigger AS $$
+BEGIN
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE FUNCTION qualified_event_trigger_type() RETURNS pg_catalog.event_trigger AS $$
+BEGIN
+    NULL;
+END;
+$$ LANGUAGE plpgsql;
