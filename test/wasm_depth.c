@@ -87,6 +87,42 @@ static bool check_plpgsql_depth(const char *name, const char *open, const char *
 	return ok;
 }
 
+/* depth chained terms through pg_query_normalize, e.g. "SELECT 1+1+1" */
+static bool check_normalize_depth(const char *name, int depth)
+{
+	const char prefix[] = "SELECT 1";
+	char *query = malloc(sizeof(prefix) + (depth - 1) * 2);
+	if (query == NULL)
+	{
+		fprintf(stderr, "FAIL %s: could not allocate query\n", name);
+		return false;
+	}
+
+	char *p = query;
+	memcpy(p, prefix, sizeof(prefix) - 1);
+	p += sizeof(prefix) - 1;
+	for (int i = 1; i < depth; i++, p += 2)
+		memcpy(p, "+1", 2);
+	*p = '\0';
+
+	PgQueryNormalizeResult result = pg_query_normalize(query);
+	int params = 0;
+	if (result.normalized_query != NULL)
+		for (const char *c = result.normalized_query; *c; c++)
+			params += *c == '$';
+	bool ok = result.error == NULL && params == depth;
+	if (ok)
+		printf("PASS %s: normalized successfully\n", name);
+	else if (result.error)
+		fprintf(stderr, "FAIL %s: expected a normalized query, got %s\n", name, result.error->message);
+	else
+		fprintf(stderr, "FAIL %s: expected %d parameters, got %d\n", name, depth, params);
+
+	pg_query_free_normalize_result(result);
+	free(query);
+	return ok;
+}
+
 /*
  * Without arguments, run with the WebAssembly stack libpg-query-node links
  * (32MB). With "overflow", run with a 1MB stack, small enough that the stack
@@ -101,6 +137,12 @@ int main(int argc, char **argv)
 			status = EXIT_FAILURE;
 		return status;
 	}
+	/*
+	 * First, while the host engine has not optimized anything yet: its native
+	 * stack then holds the fewest levels.
+	 */
+	if (!check_normalize_depth("normalize 3000 chained terms", 3000))
+		status = EXIT_FAILURE;
 	if (!check_depth("2000 chained terms", "1+", 1999, false, false))
 		status = EXIT_FAILURE;
 	if (!check_depth("1000 nested subqueries", "(SELECT ", 1000, true, false))
