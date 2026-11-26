@@ -386,6 +386,10 @@ test/split: test/split.c test/split_tests.c $(ARLIB)
 test/stack_depth: test/stack_depth.c $(ARLIB)
 	$(CC) $(TEST_CFLAGS) -o $@ test/stack_depth.c $(ARLIB) $(TEST_LDFLAGS)
 
+# Link with Emscripten and set the stack size through LDFLAGS.
+test/wasm_depth.js: test/wasm_depth.c $(ARLIB)
+	$(CC) $(TEST_CFLAGS) $(CFLAGS_OPT_LEVEL) -o $@ test/wasm_depth.c $(ARLIB) $(LDFLAGS)
+
 prefix = /usr/local
 libdir = $(prefix)/lib
 includedir = $(prefix)/include

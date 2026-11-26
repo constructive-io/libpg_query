@@ -21,6 +21,10 @@
 #include <pthread_np.h>
 #endif
 
+#if defined(__EMSCRIPTEN__)
+#include <emscripten/stack.h>
+#endif
+
 #if defined(_WIN32)
 /* For GetCurrentThreadStackLimits(); port/win32.h already sets _WIN32_WINNT. */
 #include <windows.h>
@@ -169,6 +173,8 @@ static char *get_lowest_stackaddr(void)
 
 		pg_query_lowest_stackaddr = (char *) low;
 	}
+#elif defined(__EMSCRIPTEN__)
+	pg_query_lowest_stackaddr = (char *) emscripten_stack_get_end();
 #elif defined(HAVE_PTHREAD) && defined(__linux__)
 	{
 		pthread_attr_t attr;
@@ -218,8 +224,8 @@ static char *get_lowest_stackaddr(void)
 
 /*
  * Raise max_stack_depth to fit the headroom on the calling thread's stack,
- * capped at 2MB, similar to how InitializeGUCOptionsFromEnvironment sets
- * max_stack_depth.
+ * capped at 2MB on native builds, similar to how
+ * InitializeGUCOptionsFromEnvironment sets max_stack_depth.
  *
  * Re-evaluated for each call, since libpg_query gets embedded into other
  * programs, so we have to be conscious of our place in the stack, and measure
@@ -253,9 +259,15 @@ static void set_max_stack_depth(void)
 	if (new_limit <= 100)
 		return;
 
-	/* Clamp at 2MB, like Postgres auto-detection logic. */
+#if !defined(__EMSCRIPTEN__)
+	/*
+	 * Clamp at 2MB, like Postgres auto-detection logic. On WebAssembly
+	 * the check protects the linked linear-memory stack, not the host
+	 * engine's native stack.
+	 */
 	if (new_limit > 2048)
 		new_limit = 2048;
+#endif
 
 	max_stack_depth = (int) new_limit;
 	assign_max_stack_depth((int) new_limit, NULL);
