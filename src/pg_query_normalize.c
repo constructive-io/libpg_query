@@ -347,11 +347,55 @@ static void RecordConstLocation(pgssConstLocations *jstate, int location)
 	}
 }
 
-static bool const_record_walker(Node *node, pgssConstLocations *jstate)
+static bool const_record_walker(Node *node, pgssConstLocations *jstate);
+
+/*
+ * Walks a node of a type raw_expression_tree_walker() may not know about.
+ *
+ * This is its own function, rather than part of const_record_walker, because
+ * WebAssembly builds route every call made by a function that contains a
+ * PG_TRY block through the host engine, which uses up a lot of its native
+ * stack for each level of a deeply nested expression.
+ */
+static pg_noinline bool const_record_walker_ignore_errors(Node *node, pgssConstLocations *jstate)
 {
-	bool result;
+	volatile bool result = false;
 	MemoryContext normalize_context = CurrentMemoryContext;
 
+	/*
+	 * Note we must not return from inside PG_TRY, since that skips
+	 * PG_END_TRY and leaves PG_exception_stack pointing at this
+	 * frame after it is gone.
+	 */
+	PG_TRY();
+	{
+		result = raw_expression_tree_walker(node, const_record_walker, (void*) jstate);
+	}
+	PG_CATCH();
+	{
+		ErrorData  *edata;
+
+		MemoryContextSwitchTo(normalize_context);
+		edata = CopyErrorData();
+
+		/*
+		 * The walker raises for node types it doesn't know, which we
+		 * ignore. But if we ran out of stack, the rest of the tree
+		 * was not walked, and swallowing that would return a partially
+		 * normalized query as if it was complete - pass it on instead.
+		 */
+		if (edata->sqlerrcode == ERRCODE_STATEMENT_TOO_COMPLEX)
+			PG_RE_THROW();
+
+		/* edata is released together with the per-call memory context */
+		FlushErrorState();
+	}
+	PG_END_TRY();
+	return result;
+}
+
+static bool const_record_walker(Node *node, pgssConstLocations *jstate)
+{
 	if (node == NULL) return false;
 
 	/*
@@ -588,40 +632,40 @@ static bool const_record_walker(Node *node, pgssConstLocations *jstate)
 				if (jstate->normalize_utility_only) return false;
 				return raw_expression_tree_walker(node, const_record_walker, (void*) jstate);
 			}
+		case T_List:
+		case T_A_Expr:
+		case T_BoolExpr:
+		case T_SubLink:
+		case T_FuncCall:
+		case T_NamedArgExpr:
+		case T_ResTarget:
+		case T_TypeCast:
+		case T_CollateClause:
+		case T_ColumnRef:
+		case T_A_Indirection:
+		case T_A_Indices:
+		case T_A_ArrayExpr:
+		case T_RowExpr:
+		case T_CaseExpr:
+		case T_CoalesceExpr:
+		case T_MinMaxExpr:
+		case T_NullTest:
+		case T_BooleanTest:
+		case T_JoinExpr:
+		case T_RangeSubselect:
+		case T_RangeFunction:
+		case T_RangeVar:
+		case T_SortBy:
+		case T_WithClause:
+		case T_CommonTableExpr:
+			/*
+			 * raw_expression_tree_walker() handles these node types, which
+			 * make up most of a deeply nested expression, so they don't need
+			 * const_record_walker_ignore_errors() and its PG_TRY block.
+			 */
+			return raw_expression_tree_walker(node, const_record_walker, (void*) jstate);
 		default:
-			{
-				/*
-				 * Note we must not return from inside PG_TRY, since that skips
-				 * PG_END_TRY and leaves PG_exception_stack pointing at this
-				 * frame after it is gone.
-				 */
-				result = false;
-				PG_TRY();
-				{
-					result = raw_expression_tree_walker(node, const_record_walker, (void*) jstate);
-				}
-				PG_CATCH();
-				{
-					ErrorData  *edata;
-
-					MemoryContextSwitchTo(normalize_context);
-					edata = CopyErrorData();
-
-					/*
-					 * The walker raises for node types it doesn't know, which we
-					 * ignore. But if we ran out of stack, the rest of the tree
-					 * was not walked, and swallowing that would return a partially
-					 * normalized query as if it was complete - pass it on instead.
-					 */
-					if (edata->sqlerrcode == ERRCODE_STATEMENT_TOO_COMPLEX)
-						PG_RE_THROW();
-
-					/* edata is released together with the per-call memory context */
-					FlushErrorState();
-				}
-				PG_END_TRY();
-				return result;
-			}
+			return const_record_walker_ignore_errors(node, jstate);
 	}
 
 	return false;
