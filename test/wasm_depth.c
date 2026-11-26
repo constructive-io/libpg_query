@@ -107,6 +107,23 @@ static bool check_scan_depth(const char *name, int depth)
 	return ok;
 }
 
+/* e.g. "SELECT " "f(" ... "1" ... ")" through pg_query_fingerprint */
+static bool check_fingerprint_depth(const char *name, const char *open, int depth)
+{
+	char *query = nested_query("SELECT ", open, "1", ")", "", depth);
+	PgQueryFingerprintResult result = pg_query_fingerprint(query);
+	bool ok = result.error == NULL && result.fingerprint_str != NULL;
+	if (ok)
+		printf("PASS %s: fingerprint %s\n", name, result.fingerprint_str);
+	else
+		fprintf(stderr, "FAIL %s: expected a fingerprint, got %s\n", name,
+				result.error ? result.error->message : "none");
+
+	pg_query_free_fingerprint_result(result);
+	free(query);
+	return ok;
+}
+
 /*
  * Without arguments, run with the WebAssembly stack libpg-query-node links
  * (32MB). With "overflow", run with a 1MB stack, small enough that the stack
@@ -115,6 +132,12 @@ static bool check_scan_depth(const char *name, int depth)
 int main(int argc, char **argv)
 {
 	bool ok = true;
+	if (argc > 1 && strcmp(argv[1], "fingerprint") == 0)
+	{
+		ok &= check_fingerprint_depth("fingerprint 1000 nested subqueries", "(SELECT ", 1000);
+		ok &= check_fingerprint_depth("fingerprint 2000 nested function calls", "f(", 2000);
+		return ok ? EXIT_SUCCESS : EXIT_FAILURE;
+	}
 	if (argc > 1 && strcmp(argv[1], "overflow") == 0)
 		return check_depth("100000 chained terms", "1+", "", 99999, true) ? EXIT_SUCCESS : EXIT_FAILURE;
 
