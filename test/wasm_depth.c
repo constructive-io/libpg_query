@@ -89,6 +89,24 @@ static bool check_normalize_depth(const char *name, int depth)
 	return ok;
 }
 
+/* depth chained terms through pg_query_scan_tokens: "SELECT", then depth numbers with a "+" between them */
+static bool check_scan_depth(const char *name, int depth)
+{
+	char *query = nested_query("SELECT 1", "+1", "", "", "", depth - 1);
+	PgQueryScanTokensResult result = pg_query_scan_tokens(query);
+	bool ok = result.error == NULL && result.n_tokens == 2 * depth;
+	if (ok)
+		printf("PASS %s: scanned successfully\n", name);
+	else if (result.error)
+		fprintf(stderr, "FAIL %s: expected tokens, got %s\n", name, result.error->message);
+	else
+		fprintf(stderr, "FAIL %s: expected %d tokens, got %d\n", name, 2 * depth, result.n_tokens);
+
+	pg_query_free_scan_tokens_result(result);
+	free(query);
+	return ok;
+}
+
 /* e.g. "SELECT " "f(" ... "1" ... ")" through pg_query_fingerprint */
 static bool check_fingerprint_depth(const char *name, const char *open, int depth)
 {
@@ -133,5 +151,6 @@ int main(int argc, char **argv)
 	ok &= check_depth("2000 nested function calls", "f(", ")", 2000, false);
 	ok &= check_plpgsql_depth("1000 nested IF blocks", "IF true THEN ", "NULL;", " END IF;", 1000);
 	ok &= check_plpgsql_depth("3000 nested BEGIN blocks", "BEGIN ", "NULL;", " END;", 3000);
+	ok &= check_scan_depth("scan 100000 chained terms", 100000);
 	return ok ? EXIT_SUCCESS : EXIT_FAILURE;
 }
